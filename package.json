@@ -1,0 +1,21 @@
+{
+  "name": "worldhud",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/papaparse": "^5.5.2",
+    "cesium": "1.140",
+    "deck.gl": "^9.3.2",
+    "fflate": "^0.8.2",
+    "papaparse": "^5.5.3",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12",
+    "vite-plugin-cesium": "^1.2.23"
+  }
+}
