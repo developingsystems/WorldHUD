@@ -16,7 +16,7 @@ const proxyBase = 'https://cors-proxy.systemworkers.workers.dev/?url=';
 const arcGisUrl = 'https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer';
 
 const arcGisImagery = await ArcGisMapServerImageryProvider.fromUrl(
-  `${proxyBase}${encodeURIComponent(arcGisUrl)}`,
+  `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?token=${import.meta.env.VITE_ARCGIS_TOKEN}`,
   { enablePickFeatures: false }
 );
 
