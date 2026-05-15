@@ -12,10 +12,12 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
 ArcGisMapService.defaultAccessToken = import.meta.env.VITE_ARCGIS_TOKEN;
 
-// Create the ArcGIS imagery provider with explicit token
+const proxyBase = 'https://cors-proxy.systemworkers.workers.dev/?url=';
+const arcGisUrl = 'https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer';
+
 const arcGisImagery = await ArcGisMapServerImageryProvider.fromUrl(
-  'https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer',
-  { enablePickFeatures: false, }
+  `${proxyBase}${encodeURIComponent(arcGisUrl)}`,
+  { enablePickFeatures: false }
 );
 
 const viewer = new Viewer('cesiumContainer', {
