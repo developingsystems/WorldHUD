@@ -1,7 +1,16 @@
-import { Viewer, ImageryLayer, ArcGisMapServerImageryProvider, Terrain } from 'cesium';
+import {
+  Viewer,
+  Ion,
+  ImageryLayer,
+  ArcGisMapServerImageryProvider,
+  ArcGisMapService,
+  Terrain,
+} from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
-Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
+Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
+ArcGisMapService.defaultAccessToken = import.meta.env.VITE_ARCGIS_TOKEN;
+
 
 const viewer = new Viewer('cesiumContainer', {
   terrain: Terrain.fromWorldTerrain(),
