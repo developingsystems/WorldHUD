@@ -7,16 +7,14 @@ import {
   Terrain,
 } from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
+import { fetchLatestChunk } from './data/fetch';
 
-// Set both tokens
 Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
 ArcGisMapService.defaultAccessToken = import.meta.env.VITE_ARCGIS_TOKEN;
 
-const proxyBase = 'https://cors-proxy.systemworkers.workers.dev/?url=';
-const arcGisUrl = 'https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer';
-
+// ── Viewer ── 
 const arcGisImagery = await ArcGisMapServerImageryProvider.fromUrl(
-  `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?token=${import.meta.env.VITE_ARCGIS_TOKEN}`,
+  `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer`,
   { enablePickFeatures: false }
 );
 
@@ -27,3 +25,19 @@ const viewer = new Viewer('cesiumContainer', {
 });
 
 console.log('🌍 Cesium viewer ready');
+
+// ── GDELT News Pulse ──
+try {
+  const geojson = await fetchLatestChunk();
+  const dataSource = await GeoJsonDataSource.load(geojson, {
+    stroke: Color.HOTPINK,
+    fill: Color.PINK.withAlpha(0.5),
+    strokeWidth: 2,
+    cluster: true,
+  });
+  viewer.dataSources.add(dataSource);
+  viewer.flyTo(dataSource);
+  console.log(`📊 Loaded ${geojson.features.length} events`);
+} catch (err) {
+  console.error('GDELT fetch failed:', err);
+}
