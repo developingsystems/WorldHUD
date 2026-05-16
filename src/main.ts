@@ -35,8 +35,8 @@ try {
     stroke: Color.HOTPINK,
     fill: Color.PINK.withAlpha(0.5),
     strokeWidth: 2,
-    cluster: true,
   });
+dataSource.clustering.enabled = true;
   viewer.dataSources.add(dataSource);
   viewer.flyTo(dataSource);
   console.log(`📊 Loaded ${geojson.features.length} events`);
