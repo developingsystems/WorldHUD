@@ -5,6 +5,8 @@ import {
   ArcGisMapServerImageryProvider,
   ArcGisMapService,
   Terrain,
+  Color,
+  GeoJsonDataSource,
 } from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import { fetchLatestChunk } from './data/fetch';
@@ -14,7 +16,7 @@ ArcGisMapService.defaultAccessToken = import.meta.env.VITE_ARCGIS_TOKEN;
 
 // ── Viewer ── 
 const arcGisImagery = await ArcGisMapServerImageryProvider.fromUrl(
-  `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer`,
+  `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?token=${import.meta.env.VITE_ARCGIS_TOKEN}`,
   { enablePickFeatures: false }
 );
 
