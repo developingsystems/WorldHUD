@@ -36,7 +36,6 @@ try {
     fill: Color.PINK.withAlpha(0.5),
     strokeWidth: 2,
   });
-
   viewer.dataSources.add(dataSource);
   viewer.flyTo(dataSource);
   console.log(`📊 Loaded ${geojson.features.length} events`);
