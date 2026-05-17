@@ -74,7 +74,11 @@ export async function fetchLatestChunk(): Promise<FeatureCollection> {
 
   const [eventsGeojson, mentionsArray, gkgRecords] = await Promise.all([eventsPromise, mentionsPromise, gkgPromise]);
 
-  // 8. Build lookup maps
+  console.log(`✅ Loaded ${eventsGeojson.features.length} events`);
+  console.log(`✅ Loaded ${mentionsArray.length} mentions`);
+  console.log(`✅ Loaded ${gkgRecords.length} GKG records`);
+
+  // 8. Build lookup maps …
   const mentionsMap = new Map<string, string[]>();   // GLOBALEVENTID → MentionIdentifier[]
   for (const { globalEventId, mentionId } of mentionsArray) {
     if (!mentionsMap.has(globalEventId)) mentionsMap.set(globalEventId, []);
