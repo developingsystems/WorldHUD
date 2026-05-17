@@ -37,8 +37,6 @@ try {
     strokeWidth: 2,
   });
   viewer.dataSources.add(dataSource);
-  viewer.flyTo(dataSource);
-  console.log(`📊 Loaded ${geojson.features.length} events`);
 } catch (err) {
   console.error('GDELT fetch failed:', err);
 }
