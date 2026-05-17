@@ -1,0 +1,10 @@
+{
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "portsAttributes": {
+    "5173": {
+      "label": "WorldHUD Dev Server",
+      "onAutoForward": "openBrowser",
+      "requireLocalPort": true
+    }
+  }
+}
