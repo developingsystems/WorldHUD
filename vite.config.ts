@@ -1,20 +1,8 @@
-import { defineConfig } from 'vite';
-import cesium from 'vite-plugin-cesium';
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [cesium()],
+  plugins: [],
   server: {
-    host: '0.0.0.0',   // more explicit than 'true'
-    port: 5173,
-    strictPort: false,   // fall back to another port if 5173 is taken
-    cors: true,
-    hmr: {
-      clientPort: 443,
-    },
-  },
-  build: {
-    rollupOptions: {
-      input: 'index.html',
-    },
+    host: true,   // ← eliminates the IPv4/IPv6 mismatch for Codespaces
   },
 });
