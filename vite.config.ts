@@ -4,7 +4,7 @@ import cesium from 'vite-plugin-cesium';
 export default defineConfig({
   plugins: [cesium()],
   server: {
-    host: '0.0.0.0',   // more explicit than 'true'
+    host: 'true',
     port: 5173,
     strictPort: false,   // fall back to another port if 5173 is taken
     cors: true,
