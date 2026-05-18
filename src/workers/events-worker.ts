@@ -14,7 +14,7 @@ self.onmessage = async (e) => {
   Papa.parse(csvText, {
     delimiter: '\t',
     header: false,
-    step: (row) => {
+      step: (row: { data: string[] }) => {
       rowCount++;
       const lat = parseFloat(row.data[56] || '');
       const lng = parseFloat(row.data[57] || '');
