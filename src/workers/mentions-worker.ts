@@ -13,7 +13,7 @@ self.onmessage = async (e) => {
     delimiter: '\t',
     header: false,
     complete: (result) => {
-      for (const row of result.data) {
+        for (const row of result.data as any[]) {
         const globalEventId = row[0];
         const mentionId = row[5];
         if (globalEventId && mentionId) {
