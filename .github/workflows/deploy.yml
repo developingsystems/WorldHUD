@@ -36,6 +36,7 @@ jobs:
         run: npm run build -- --base /WorldHUD/
         env:
           VITE_CESIUM_ION_TOKEN: ${{ secrets.VITE_CESIUM_ION_TOKEN }}
+          VITE_CORS_PROXY_URL: ${{ secrets.VITE_CORS_PROXY_URL }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
