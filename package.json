@@ -16,6 +16,6 @@
     "papaparse": "^5.5.3",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
-    "vite-plugin-cesium": "^1.2.23"
+    "vite-plugin-cesium-next": "^2.0.5"
   }
 }
