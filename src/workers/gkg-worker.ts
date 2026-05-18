@@ -20,7 +20,7 @@ self.onmessage = async (e) => {
     delimiter: '\t',
     header: false,
     complete: (result) => {
-      for (const row of result.data) {
+        for (const row of result.data as any[]) {
         const mentionId = row[4];          // DocumentIdentifier
         const countsField = row[6] || '';  // V2Counts
         const xmlExtras = row[26] || '';   // V2ExtrasXML
