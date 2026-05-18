@@ -103,8 +103,10 @@ export async function fetchLatestChunk(): Promise<FeatureCollection> {
         counts.push(...gkgEntry.counts);
       }
     }
-    feature.properties.headlines = headlines;
-    feature.properties.counts = counts;
+    if (feature.properties) {
+      feature.properties.headlines = headlines;
+      feature.properties.counts = counts;
+    }
   }
 
   return eventsGeojson as FeatureCollection;
