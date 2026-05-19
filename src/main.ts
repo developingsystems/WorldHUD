@@ -10,6 +10,7 @@ import {
 } from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import { fetchLatestChunk } from './data/fetch';
+import { InfoBox } from './ui/infobox.js';
 
 Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
 ArcGisMapService.defaultAccessToken = import.meta.env.VITE_ARCGIS_TOKEN;
@@ -24,6 +25,7 @@ const viewer = new Viewer('cesiumContainer', {
   terrain: Terrain.fromWorldTerrain(),
   baseLayer: new ImageryLayer(arcGisImagery),
   baseLayerPicker: true,
+  infoBox: false,
 });
 
 console.log('🌍 Cesium viewer ready');
@@ -37,6 +39,7 @@ try {
     strokeWidth: 2,
   });
   viewer.dataSources.add(dataSource);
+  new InfoBox(viewer);   // ← custom InfoBox (Sanitizer API + DOMPurify)
 } catch (err) {
   console.error('GDELT fetch failed:', err);
 }
