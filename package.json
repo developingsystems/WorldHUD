@@ -12,7 +12,6 @@
     "dompurify": "3.4.5"
   },
   "devDependencies": {
-    "@types/dompurify": "3.2.6",
     "@types/papaparse": "^5.5.2",
     "cesium": "1.140",
     "deck.gl": "^9.3.2",
