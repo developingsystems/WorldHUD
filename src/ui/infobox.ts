@@ -106,8 +106,6 @@ function renderGdelt(entity: Entity): { title: string; body: string } {
     : '';
 
   const rawBody = `
-    <p><strong>Source:</strong> <a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeUrl}</a></p>
-    <hr>
     <p><strong>Actors:</strong> ${esc(actor1)} vs ${esc(actor2)}</p>
     <p><strong>Event Code:</strong> ${esc(eventCode)}</p>
     <p><strong>Goldstein Score:</strong> ${goldstein.toFixed(2)}</p>
