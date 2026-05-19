@@ -192,7 +192,7 @@ export class InfoBox {
       this.hide();
       return;
     }
-    const { title, body } = renderGdelt(entity);
+    const { title, body } = renderGdelt(entity, this.articleMap);
     this.show(title, body);
   }
 
