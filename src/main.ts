@@ -39,7 +39,19 @@ try {
     strokeWidth: 2,
   });
   viewer.dataSources.add(dataSource);
-  new InfoBox(viewer);   // ← custom InfoBox (Sanitizer API + DOMPurify)
+
+  // Build a map of sourceUrl → all event properties for per‑article InfoBoxes
+  const articleMap = new Map<string, Record<string, unknown>[]>();
+  for (const feature of geojson.features) {
+    const props = feature.properties;
+    if (props && props.sourceUrl) {
+      const url = props.sourceUrl as string;
+      if (!articleMap.has(url)) articleMap.set(url, []);
+      articleMap.get(url)!.push(props);
+    }
+  }
+
+  new InfoBox(viewer, articleMap);
 } catch (err) {
   console.error('GDELT fetch failed:', err);
 }
