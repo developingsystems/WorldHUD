@@ -1,5 +1,5 @@
 import { Viewer, Entity } from 'cesium';
-import DOMPurify from 'dompurify';
+import DOMPurify, { type Config } from 'dompurify';
 
 // =============================================================================
 // Type declarations for the Sanitizer API (not yet in TypeScript's DOM lib)
@@ -46,13 +46,12 @@ const GDELT_ALLOWED_TAGS = [
 ] as const;
 
 /** DOMPurify configuration – compatible with v3.x */
-const GDELT_DOMPURIFY_CONFIG: DOMPurify.Config = {
+const GDELT_DOMPURIFY_CONFIG: Config = {
   ALLOWED_TAGS: [...GDELT_ALLOWED_TAGS],
   ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
   ALLOWED_URI_REGEXP: /^https?:\/\//,
   ALLOW_UNKNOWN_PROTOCOLS: true,
   ADD_ATTR: ['target'],
-  KEEP_CONTENT: true,
 };
 
 // =============================================================================
@@ -65,7 +64,9 @@ function sanitize(html: string): string {
     });
     const temp = document.createElement('div');
     temp.setHTML(html, { sanitizer });
-    return temp.innerHTML;
+    // `innerHTML` returns a `TrustedHTML` object when the Sanitizer API is used;
+    // cast to string for compatibility with the rest of the code.
+    return temp.innerHTML as unknown as string;
   }
   // Fall back to DOMPurify
   return DOMPurify.sanitize(html, GDELT_DOMPURIFY_CONFIG);
