@@ -75,20 +75,15 @@ function sanitize(html: string): string {
 // =============================================================================
 // Template: GDELT event
 // =============================================================================
-function renderGdelt(entity: Entity): { title: string; body: string } {
+function renderGdelt(
+  entity: Entity,
+  articleMap: Map<string, Record<string, unknown>[]>,
+): { title: string; body: string } {
   const p = entity.properties?.getValue() || {};
-
-  const sourceUrl     = (p.sourceUrl     as string)   || '';
-  const headlines     = (p.headlines     as string[]) || [];
-  const headline      = headlines[0] || 'GDELT Event';
-  const globalEventId = (p.globalEventId as string)  || '';
-  const actor1        = (p.actor1        as string)   || '';
-  const actor2        = (p.actor2        as string)   || '';
-  const eventCode     = (p.eventCode     as string)   || '';
-  const goldstein     = (p.goldstein     as number)   || 0;
-  const numMentions   = (p.numMentions   as number)   || 0;
-  const tone          = (p.tone          as number)   || 0;
-  const entityId      = entity.id;
+  const sourceUrl = (p.sourceUrl as string) || '';
+  const headlines = (p.headlines as string[]) || [];
+  const headline  = headlines[0] || 'GDELT Event';
+  const clickedId = (p.globalEventId as string) || '';
 
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -96,25 +91,39 @@ function renderGdelt(entity: Entity): { title: string; body: string } {
   const safeUrl = esc(sourceUrl);
   const safeHeadline = esc(headline);
 
-  // Title HTML – clickable headline with CSS class
+  // Title HTML – clickable headline
   const rawTitle = `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${safeHeadline}</a>`;
   const title = sanitize(rawTitle);
 
-  // Body HTML
-  const extraHeadlines = headlines.length > 1
-    ? `<p><strong>All Headlines (${headlines.length}):</strong></p><ul>${headlines.map(h => `<li>${esc(h)}</li>`).join('')}</ul>`
-    : '';
+  // Body: all events from this article, compact format
+  const siblings = articleMap.get(sourceUrl) || [p];
+  let eventsHtml = '';
+  siblings.forEach((evt, idx) => {
+    const gid  = (evt.globalEventId as string) || '';
+    const a1   = (evt.actor1 as string) || '';
+    const a2   = (evt.actor2 as string) || '';
+    const code = (evt.eventCode as string) || '';
+    const gold = (evt.goldstein as number) || 0;
+    const ment = (evt.numMentions as number) || 0;
+    const ton  = (evt.tone as number) || 0;
+    const isClicked = gid === clickedId;
+
+    const highlightStyle = isClicked
+      ? 'border-left: 2px solid #66aaff; padding-left: 6px;'
+      : 'border-left: 2px solid transparent; padding-left: 6px;';
+
+    eventsHtml += `
+      <div style="${highlightStyle} margin-bottom: 4px; font-size: 12px;" title="Global Event ID: ${esc(gid)}">
+        ${esc(a1)} vs ${esc(a2)} | code ${esc(code)} | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
+      </div>`;
+  });
 
   const rawBody = `
-    <p><strong>Actors:</strong> ${esc(actor1)} vs ${esc(actor2)}</p>
-    <p><strong>Event Code:</strong> ${esc(eventCode)}</p>
-    <p><strong>Goldstein Score:</strong> ${goldstein.toFixed(2)}</p>
-    <p><strong>Mentions:</strong> ${numMentions}</p>
-    <p><strong>Tone:</strong> ${tone.toFixed(2)}</p>
-    <p><strong>Global Event ID:</strong> ${esc(globalEventId)}</p>
-    ${extraHeadlines}
-    <hr>
-    <p class="infobox-uuid">Entity UUID: ${esc(entityId)}</p>
+    <div class="infobox-body">
+      ${eventsHtml}
+      <hr>
+      <p class="infobox-uuid">Entity UUID: ${esc(entity.id)}</p>
+    </div>
   `;
 
   const body = sanitize(rawBody);
