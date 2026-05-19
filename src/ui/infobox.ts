@@ -2,12 +2,37 @@ import { Viewer, Entity } from 'cesium';
 import DOMPurify from 'dompurify';
 
 // =============================================================================
+// Type declarations for the Sanitizer API (not yet in TypeScript's DOM lib)
+// =============================================================================
+declare global {
+  interface Element {
+    setHTML(html: string, options?: { sanitizer: Sanitizer }): void;
+  }
+}
+
+interface SanitizerConfig {
+  allowElements?: readonly string[];
+  blockElements?: readonly string[];
+  dropElements?: readonly string[];
+  allowAttributes?: Record<string, readonly string[]>;
+  dropAttributes?: Record<string, readonly string[]>;
+  allowComments?: boolean;
+  allowDataAttributes?: boolean;
+}
+
+declare class Sanitizer {
+  constructor(config?: SanitizerConfig);
+  sanitize(input: Document | DocumentFragment | Element): DocumentFragment;
+  sanitizeFor(elementName: string, input: string): Element;
+}
+
+// =============================================================================
 // Feature detection: Sanitizer API (Firefox 148+, Chrome 146+)
 // =============================================================================
 function hasNativeSanitizer(): boolean {
   return (
     typeof window !== 'undefined' &&
-    'Sanitizer' in window &&
+    typeof Sanitizer === 'function' &&
     typeof Element.prototype.setHTML === 'function'
   );
 }
@@ -20,16 +45,15 @@ const GDELT_ALLOWED_TAGS = [
   'ul', 'ol', 'li', 'div', 'span',
 ] as const;
 
-/** DOMPurify configuration – exactly as previously designed */
-const GDELT_DOMPURIFY_CONFIG = {
+/** DOMPurify configuration – compatible with v3.x */
+const GDELT_DOMPURIFY_CONFIG: DOMPurify.Config = {
   ALLOWED_TAGS: [...GDELT_ALLOWED_TAGS],
   ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
   ALLOWED_URI_REGEXP: /^https?:\/\//,
   ALLOW_UNKNOWN_PROTOCOLS: true,
   ADD_ATTR: ['target'],
   KEEP_CONTENT: true,
-  USE_PROFILES: { html: true },
-} as const;
+};
 
 // =============================================================================
 // Sanitization function (auto‑picks native or fallback)
@@ -65,7 +89,6 @@ function renderGdelt(entity: Entity): { title: string; body: string } {
   const tone          = (p.tone          as number)   || 0;
   const entityId      = entity.id;
 
-  // Escape values that go into attribute quotes (except inside <a> text, where we want literal)
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -76,7 +99,7 @@ function renderGdelt(entity: Entity): { title: string; body: string } {
   const rawTitle = `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${safeHeadline}</a>`;
   const title = sanitize(rawTitle);
 
-  // Body HTML – no inline styles; styling applied in show()
+  // Body HTML
   const extraHeadlines = headlines.length > 1
     ? `<p><strong>All Headlines (${headlines.length}):</strong></p><ul>${headlines.map(h => `<li>${esc(h)}</li>`).join('')}</ul>`
     : '';
@@ -104,13 +127,10 @@ function renderGdelt(entity: Entity): { title: string; body: string } {
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
-  private viewer: Viewer;
   private removeListener: () => void;
 
   constructor(viewer: Viewer) {
-    this.viewer = viewer;
-
-    // Inject CSS for the InfoBox (once, if not already present)
+    // Inject CSS for the InfoBox (once)
     if (!document.getElementById('custom-infobox-styles')) {
       const styleEl = document.createElement('style');
       styleEl.id = 'custom-infobox-styles';
@@ -167,15 +187,13 @@ export class InfoBox {
   }
 
   private show(titleHtml: string, bodyHtml: string): void {
-    // Clear the container
     this.container.innerHTML = '';
 
-    // Title element – safe to use innerHTML because titleHtml is sanitized
     const titleEl = document.createElement('div');
-    titleEl.style.cssText = 'font-weight: bold; font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #555; padding-bottom: 6px;';
+    titleEl.style.cssText =
+      'font-weight: bold; font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #555; padding-bottom: 6px;';
     titleEl.innerHTML = titleHtml;
 
-    // Body element – safe because bodyHtml is sanitized
     const bodyEl = document.createElement('div');
     bodyEl.className = 'infobox-body';
     bodyEl.innerHTML = bodyHtml;
