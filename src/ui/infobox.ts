@@ -155,7 +155,7 @@ export class InfoBox {
     this.container.id = 'custom-infobox';
     this.container.style.cssText = `
       position: absolute;
-      top: 50px;
+      top: 44px;
       right: 10px;
       width: 340px;
       max-height: 80vh;
