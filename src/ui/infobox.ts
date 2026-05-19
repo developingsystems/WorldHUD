@@ -127,8 +127,10 @@ function renderGdelt(entity: Entity): { title: string; body: string } {
 export class InfoBox {
   private container: HTMLDivElement;
   private removeListener: () => void;
+  private articleMap: Map<string, Record<string, unknown>[]>;
 
-  constructor(viewer: Viewer) {
+  constructor(viewer: Viewer, articleMap: Map<string, Record<string, unknown>[]>) {
+    this.articleMap = articleMap;
     // Inject CSS for the InfoBox (once)
     if (!document.getElementById('custom-infobox-styles')) {
       const styleEl = document.createElement('style');
