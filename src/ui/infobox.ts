@@ -98,7 +98,7 @@ function renderGdelt(
   // Body: all events from this article, compact format
   const siblings = articleMap.get(sourceUrl) || [p];
   let eventsHtml = '';
-  siblings.forEach((evt, idx) => {
+  siblings.forEach((evt) => {
     const gid  = (evt.globalEventId as string) || '';
     const a1   = (evt.actor1 as string) || '';
     const a2   = (evt.actor2 as string) || '';
