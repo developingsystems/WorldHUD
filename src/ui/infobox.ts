@@ -167,10 +167,10 @@ export class InfoBox {
       position: absolute;
       top: 44px;
       right: 10px;
-      width: 420px;
+      width: 460px;
       max-height: 80vh;
       overflow-y: auto;
-      background: rgba(0, 0, 0, 0.83);
+      background: rgba(0, 0, 0, 0.80);
       color: white;
       padding: 12px;
       border-radius: 4px;
@@ -200,7 +200,7 @@ export class InfoBox {
 
     const titleEl = document.createElement('div');
     titleEl.style.cssText =
-      'font-weight: bold; font-size: 16px; margin-bottom: 8px; border-bottom: 1px solid #555; padding-bottom: 6px;';
+      'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
     titleEl.innerHTML = titleHtml;
 
     const bodyEl = document.createElement('div');
