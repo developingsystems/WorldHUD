@@ -147,11 +147,10 @@ export class InfoBox {
       styleEl.textContent = `
         .infobox-title-link {
           color: white;
-          text-decoration: underline;
+          text-decoration: none;
         }
         .infobox-body {
           font-family: sans-serif;
-          max-width: 300px;
         }
         .infobox-uuid {
           font-size: 0.7em;
@@ -171,7 +170,7 @@ export class InfoBox {
       width: 420px;
       max-height: 80vh;
       overflow-y: auto;
-      background: rgba(0, 0, 0, 0.85);
+      background: rgba(0, 0, 0, 0.83);
       color: white;
       padding: 12px;
       border-radius: 4px;
@@ -201,7 +200,7 @@ export class InfoBox {
 
     const titleEl = document.createElement('div');
     titleEl.style.cssText =
-      'font-weight: bold; font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #555; padding-bottom: 6px;';
+      'font-weight: bold; font-size: 16px; margin-bottom: 8px; border-bottom: 1px solid #555; padding-bottom: 6px;';
     titleEl.innerHTML = titleHtml;
 
     const bodyEl = document.createElement('div');
