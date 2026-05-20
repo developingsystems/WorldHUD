@@ -168,8 +168,8 @@ export class InfoBox {
       position: absolute;
       top: 44px;
       right: 10px;
-      width: 460px;
-      max-height: 80vh;
+      width: 480px;
+      max-height: 75vh;
       overflow-y: auto;
       background: rgba(0, 0, 0, 0.80);
       color: white;
