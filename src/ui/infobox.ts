@@ -155,6 +155,7 @@ export class InfoBox {
         .infobox-uuid {
           font-size: 0.7em;
           color: gray;
+          margin-bottom: 5;
         }
       `;
       document.head.appendChild(styleEl);
