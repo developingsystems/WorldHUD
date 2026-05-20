@@ -23,11 +23,32 @@ export async function fetchLatestChunk(): Promise<FeatureCollection> {
     gkg: `${baseUrl}.gkg.csv.zip`,
   };
 
-  // 3. Fetch all three in parallel
+  // 3. Fetch all three in parallel (with timeout + retry)
+  async function fetchBlob(url: string): Promise<Blob> {
+    const maxRetries = 5;
+    const baseTimeout = 15000; // 15 seconds
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const timeout = baseTimeout * attempt; // backoff: 15s, 30s, 45s
+      const signal = AbortSignal.timeout(timeout);
+      try {
+        const res = await fetch(url, { signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.blob();
+      } catch (err: any) {
+        if (attempt < maxRetries && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+          console.warn(`Fetch attempt ${attempt} timed out after ${timeout}s, retrying...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('fetchBlob: unreachable');
+  }
+
   const [eventsBlob, mentionsBlob, gkgBlob] = await Promise.all([
-    fetch(PROXY + encodeURIComponent(files.events)).then((r) => r.blob()),
-    fetch(PROXY + encodeURIComponent(files.mentions)).then((r) => r.blob()),
-    fetch(PROXY + encodeURIComponent(files.gkg)).then((r) => r.blob()),
+    fetchBlob(PROXY + encodeURIComponent(files.events)),
+    fetchBlob(PROXY + encodeURIComponent(files.mentions)),
+    fetchBlob(PROXY + encodeURIComponent(files.gkg)),
   ]);
 
   // 4. Unzip helper
