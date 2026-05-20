@@ -112,7 +112,7 @@ function renderGdelt(
 
     // Dual‑hover: row title shows Global Event ID, verb span shows full CAMEO phrase
     eventsHtml += `
-      <div style="${highlightStyle} margin-bottom: 6px; font-size: 12px;" title="Global Event ID: ${esc(gid)}">
+      <div style="${highlightStyle} margin-bottom: 7px; font-size: 12px;" title="Global Event ID: ${esc(gid)}">
                 <strong>${esc(a1)} <span title="${esc(getVerb(code))}">${esc(getRootVerbPast(code))}</span> ${esc(a2)}</strong> | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
       </div>`;
   });
