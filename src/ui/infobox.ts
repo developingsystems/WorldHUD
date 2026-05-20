@@ -1,5 +1,6 @@
 import { Viewer, Entity } from 'cesium';
 import DOMPurify, { type Config } from 'dompurify';
+import { getVerb, getRootVerbPast } from '../data/cameoverbs.js';
 
 // =============================================================================
 // Type declarations for the Sanitizer API (not yet in TypeScript's DOM lib)
@@ -48,7 +49,7 @@ const GDELT_ALLOWED_TAGS = [
 /** DOMPurify configuration – compatible with v3.x */
 const GDELT_DOMPURIFY_CONFIG: Config = {
   ALLOWED_TAGS: [...GDELT_ALLOWED_TAGS],
-  ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+  ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title'],
   ALLOWED_URI_REGEXP: /^https?:\/\//,
   ALLOW_UNKNOWN_PROTOCOLS: true,
   ADD_ATTR: ['target'],
@@ -64,16 +65,13 @@ function sanitize(html: string): string {
     });
     const temp = document.createElement('div');
     temp.setHTML(html, { sanitizer });
-    // `innerHTML` returns a `TrustedHTML` object when the Sanitizer API is used;
-    // cast to string for compatibility with the rest of the code.
     return temp.innerHTML as unknown as string;
   }
-  // Fall back to DOMPurify
   return DOMPurify.sanitize(html, GDELT_DOMPURIFY_CONFIG);
 }
 
 // =============================================================================
-// Template: GDELT event
+// Template: GDELT event – now shows all events from the same article
 // =============================================================================
 function renderGdelt(
   entity: Entity,
@@ -112,9 +110,10 @@ function renderGdelt(
       ? 'border-left: 2px solid #66aaff; padding-left: 6px;'
       : 'border-left: 2px solid transparent; padding-left: 6px;';
 
+    // Dual‑hover: row title shows Global Event ID, verb span shows full CAMEO phrase
     eventsHtml += `
       <div style="${highlightStyle} margin-bottom: 4px; font-size: 12px;" title="Global Event ID: ${esc(gid)}">
-        ${esc(a1)} vs ${esc(a2)} | code ${esc(code)} | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
+        ${esc(a1)} <span title="${esc(getVerb(code))}">${esc(getRootVerbPast(code))}</span> ${esc(a2)} | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
       </div>`;
   });
 
@@ -140,6 +139,7 @@ export class InfoBox {
 
   constructor(viewer: Viewer, articleMap: Map<string, Record<string, unknown>[]>) {
     this.articleMap = articleMap;
+
     // Inject CSS for the InfoBox (once)
     if (!document.getElementById('custom-infobox-styles')) {
       const styleEl = document.createElement('style');
