@@ -113,7 +113,7 @@ function renderGdelt(
     // Dual‑hover: row title shows Global Event ID, verb span shows full CAMEO phrase
     eventsHtml += `
       <div style="${highlightStyle} margin-bottom: 4px; font-size: 12px;" title="Global Event ID: ${esc(gid)}">
-        ${esc(a1)} <span title="${esc(getVerb(code))}">${esc(getRootVerbPast(code))}</span> ${esc(a2)} | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
+                <strong>${esc(a1)} <span title="${esc(getVerb(code))}">${esc(getRootVerbPast(code))}</span> ${esc(a2)}</strong> | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
       </div>`;
   });
 
@@ -168,7 +168,7 @@ export class InfoBox {
       position: absolute;
       top: 44px;
       right: 10px;
-      width: 340px;
+      width: 420px;
       max-height: 80vh;
       overflow-y: auto;
       background: rgba(0, 0, 0, 0.85);
