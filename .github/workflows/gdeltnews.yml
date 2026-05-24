@@ -2,7 +2,6 @@ name: Reconstruct GDELT Full Articles
 
 on:
   schedule:
-    # 6 minutes after each quarter‑hour – all NGram files are ready
     - cron: '6,21,36,51 * * * *'
   workflow_dispatch:
 
