@@ -71,11 +71,17 @@ function sanitize(html: string): string {
 }
 
 // =============================================================================
-// Template: GDELT event – now shows all events from the same article
+// Template: GDELT event – shows all events from the same article, plus
+// a selectable full‑text article from one of three sources (Fundus/stage1/stage2)
 // =============================================================================
+
+type ArticleSources = Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
+
 function renderGdelt(
   entity: Entity,
   articleMap: Map<string, Record<string, unknown>[]>,
+  articleSources: ArticleSources,
+  currentSource: 'fundus' | 'stage1' | 'stage2',
 ): { title: string; body: string } {
   const p = entity.properties?.getValue() || {};
   const sourceUrl = (p.sourceUrl as string) || '';
@@ -117,9 +123,17 @@ function renderGdelt(
       </div>`;
   });
 
+  // Full‑text article from the currently selected source
+  const sources = articleSources.get(sourceUrl) || {};
+  const articleText = sources[currentSource] || sources.stage2 || sources.stage1 || sources.fundus || '';
+
   const rawBody = `
     <div class="infobox-body">
       ${eventsHtml}
+      <hr>
+      <div class="infobox-article">
+        ${articleText ? `<p>${esc(articleText)}</p>` : '<p style="color: gray;">Article text not yet available for this source.</p>'}
+      </div>
       <hr>
       <p class="infobox-uuid">Entity UUID: ${esc(entity.id)}</p>
     </div>
@@ -136,11 +150,22 @@ export class InfoBox {
   private container: HTMLDivElement;
   private removeListener: () => void;
   private articleMap: Map<string, Record<string, unknown>[]>;
+  private articleSources: ArticleSources;
+  private dropdown: HTMLSelectElement;
+  private currentSource: 'fundus' | 'stage1' | 'stage2' = 'stage2';
+  private currentTitle: string = '';
+  private currentBody: string = '';
+  private currentEntity: Entity | undefined;
 
-  constructor(viewer: Viewer, articleMap: Map<string, Record<string, unknown>[]>) {
+  constructor(
+    viewer: Viewer,
+    articleMap: Map<string, Record<string, unknown>[]>,
+    articleSources: ArticleSources,
+  ) {
     this.articleMap = articleMap;
+    this.articleSources = articleSources;
 
-    // Inject CSS for the InfoBox (once)
+    // Inject CSS (once)
     if (!document.getElementById('custom-infobox-styles')) {
       const styleEl = document.createElement('style');
       styleEl.id = 'custom-infobox-styles';
@@ -157,11 +182,27 @@ export class InfoBox {
           color: gray;
           margin-bottom: 0;
         }
+        .infobox-article {
+          max-height: 40vh;
+          overflow-y: auto;
+          margin-top: 8px;
+          white-space: pre-wrap;
+        }
+        .infobox-source-select {
+          width: 100%;
+          margin-bottom: 8px;
+          padding: 4px;
+          background: #222;
+          color: white;
+          border: 1px solid #555;
+          border-radius: 4px;
+          font-size: 12px;
+        }
       `;
       document.head.appendChild(styleEl);
     }
 
-    // Create the DOM container for the InfoBox
+    // Create DOM container
     this.container = document.createElement('div');
     this.container.id = 'custom-infobox';
     this.container.style.cssText = `
@@ -181,6 +222,16 @@ export class InfoBox {
     `;
     viewer.container.appendChild(this.container);
 
+    // Build dropdown (visible only when an entity is selected)
+    this.dropdown = document.createElement('select');
+    this.dropdown.className = 'infobox-source-select';
+    this.dropdown.style.display = 'none'; // hidden until we have an entity
+    this.dropdown.addEventListener('change', () => {
+      this.currentSource = this.dropdown.value as 'fundus' | 'stage1' | 'stage2';
+      this.refreshArticle();
+    });
+    // We'll insert the dropdown as the first child of the container when showing
+
     // Listen for entity selection changes
     this.removeListener = viewer.selectedEntityChanged.addEventListener(
       (entity: Entity | undefined) => this.onSelectionChanged(entity),
@@ -192,21 +243,71 @@ export class InfoBox {
       this.hide();
       return;
     }
-    const { title, body } = renderGdelt(entity, this.articleMap);
-    this.show(title, body);
+    this.currentEntity = entity;
+    // Determine the best available source for this article
+    const p = entity.properties.getValue() || {};
+    const url = (p.sourceUrl as string) || '';
+    const sources = this.articleSources.get(url) || {};
+    // Pick the longest available version by default
+    const candidates: { source: 'fundus' | 'stage1' | 'stage2'; text: string }[] = [];
+    if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
+    if (sources.stage1) candidates.push({ source: 'stage1', text: sources.stage1 });
+    if (sources.stage2) candidates.push({ source: 'stage2', text: sources.stage2 });
+    if (candidates.length > 0) {
+      this.currentSource = candidates.reduce((best, cur) =>
+        cur.text.length > best.text.length ? cur : best
+      ).source;
+    }
+    // If no sources are available, keep the previous default (stage2), but it'll show a placeholder.
+
+    const { title, body } = renderGdelt(entity, this.articleMap, this.articleSources, this.currentSource);
+    this.currentTitle = title;
+    this.currentBody = body;
+    this.show();
   }
 
-  private show(titleHtml: string, bodyHtml: string): void {
+  private refreshArticle(): void {
+    if (!this.currentEntity) return;
+    const { title, body } = renderGdelt(this.currentEntity, this.articleMap, this.articleSources, this.currentSource);
+    this.currentTitle = title;
+    this.currentBody = body;
+    this.show();
+  }
+
+  private show(): void {
     this.container.innerHTML = '';
 
+    // Dropdown first
+    const p = this.currentEntity?.properties?.getValue() || {};
+    const url = (p.sourceUrl as string) || '';
+    const sources = this.articleSources.get(url) || {};
+    this.dropdown.innerHTML = '';
+    const options: { value: 'fundus' | 'stage1' | 'stage2'; label: string }[] = [
+      { value: 'fundus', label: 'Fundus' },
+      { value: 'stage1', label: 'NGram Stage 1' },
+      { value: 'stage2', label: 'NGram Stage 2' },
+    ];
+    options.forEach(opt => {
+      const optionEl = document.createElement('option');
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      if (!sources[opt.value]) optionEl.disabled = true;
+      if (opt.value === this.currentSource) optionEl.selected = true;
+      this.dropdown.appendChild(optionEl);
+    });
+    this.dropdown.style.display = 'block';
+    this.container.appendChild(this.dropdown);
+
+    // Title
     const titleEl = document.createElement('div');
     titleEl.style.cssText =
       'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
-    titleEl.innerHTML = titleHtml;
+    titleEl.innerHTML = this.currentTitle;
 
+    // Body
     const bodyEl = document.createElement('div');
     bodyEl.className = 'infobox-body';
-    bodyEl.innerHTML = bodyHtml;
+    bodyEl.innerHTML = this.currentBody;
 
     this.container.appendChild(titleEl);
     this.container.appendChild(bodyEl);
@@ -216,6 +317,7 @@ export class InfoBox {
   private hide(): void {
     this.container.style.display = 'none';
     this.container.innerHTML = '';
+    this.dropdown.style.display = 'none';
   }
 
   destroy(): void {
