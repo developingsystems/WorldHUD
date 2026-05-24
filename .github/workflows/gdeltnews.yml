@@ -2,9 +2,8 @@ name: GDELT NGram Article Reconstruction
 
 on:
   schedule:
-    # Stage 1 – early reconstruction 6 min after each quarter‑hour
+    # Run every minute we need a stage (6,21,36,51 for stage1; 17,32,47,2 for stage2)
     - cron: '6,21,36,51 * * * *'
-    # Stage 2 – final reconstruction 2 min after the last minute of the chunk
     - cron: '17,32,47,2 * * * *'
   workflow_dispatch:
 
@@ -12,8 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  stage1:
-    if: github.event_name != 'schedule' || github.event.schedule == '6,21,36,51 * * * *'
+  reconstruct:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -23,37 +21,23 @@ jobs:
           cache: 'pip'
       - name: Install gdeltnews
         run: pip install gdeltnews
-      - name: Run pipeline (stage1)
-        env:
-          STAGE: stage1
+      - name: Determine stage
+        id: stage
+        run: |
+          minute=$(date -u +%M)
+          case $minute in
+            06|21|36|51) echo "STAGE=stage1" >> $GITHUB_ENV ;;
+            17|32|47|02) echo "STAGE=stage2" >> $GITHUB_ENV ;;
+            *) echo "STAGE=none" >> $GITHUB_ENV ;;
+          esac
+      - name: Run pipeline
+        if: env.STAGE != 'none'
         run: python scripts/gdeltnews_pipeline.py
-      - name: Commit stage1 articles
+      - name: Commit article files
+        if: env.STAGE != 'none'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Update gdeltnews articles (stage1)"
-          file_pattern: 'articles_*_stage1.json'
-          commit_user_name: github-actions[bot]
-          commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
-
-  stage2:
-    if: github.event_name != 'schedule' || github.event.schedule == '17,32,47,2 * * * *'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-      - name: Install gdeltnews
-        run: pip install gdeltnews
-      - name: Run pipeline (stage2)
-        env:
-          STAGE: stage2
-        run: python scripts/gdeltnews_pipeline.py
-      - name: Commit final articles
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Update gdeltnews articles (stage2 final)"
+          commit_message: "Update gdeltnews articles (${{ env.STAGE }})"
           file_pattern: 'articles_*.json'
           commit_user_name: github-actions[bot]
           commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
