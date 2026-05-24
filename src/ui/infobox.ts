@@ -152,7 +152,7 @@ export class InfoBox {
   private articleMap: Map<string, Record<string, unknown>[]>;
   private articleSources: ArticleSources;
   private dropdown: HTMLSelectElement;
-  private currentSource: 'fundus' | 'stage1' | 'stage2' = 'stage2';
+  private currentSource: 'fundus' | 'stage1' | 'stage2' = 'stage1';
   private currentTitle: string = '';
   private currentBody: string = '';
   private currentEntity: Entity | undefined;
