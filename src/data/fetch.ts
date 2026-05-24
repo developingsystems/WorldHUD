@@ -2,7 +2,7 @@ import type { FeatureCollection } from 'geojson';
 
 const PROXY = import.meta.env.VITE_CORS_PROXY_URL || '';
 
-export async function fetchLatestChunk(): Promise<FeatureCollection> {
+export async function fetchLatestChunk(): Promise<{ geojson: FeatureCollection; timestamp: string }> {
   if (!PROXY) throw new Error('Missing VITE_CORS_PROXY_URL in .env');
 
   // 1. Get latest chunk timestamp
@@ -130,5 +130,5 @@ export async function fetchLatestChunk(): Promise<FeatureCollection> {
     }
   }
 
-  return eventsGeojson as FeatureCollection;
+    return { geojson: eventsGeojson as FeatureCollection, timestamp };
 }
