@@ -32,7 +32,7 @@ console.log('🌍 Cesium viewer ready');
 
 // ── GDELT News Pulse ──
 try {
-  const geojson = await fetchLatestChunk();
+  const { geojson, timestamp } = await fetchLatestChunk();
   const dataSource = await GeoJsonDataSource.load(geojson, {
     stroke: Color.HOTPINK,
     fill: Color.PINK.withAlpha(0.5),
@@ -51,7 +51,35 @@ try {
     }
   }
 
-  new InfoBox(viewer, articleMap);
+  // Fetch the two article JSON files from GitHub Pages
+  const base = 'https://developingsystems.github.io/WorldHUD';
+  const stage1File = `${base}/articles_${timestamp}_stage1.json`;
+  const stage2File = `${base}/articles_${timestamp}.json`;
+
+  // Helper to fetch & parse JSON, returns empty object on failure
+  const fetchJson = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      return res.ok ? await res.json() as Record<string, string> : {};
+    } catch { return {}; }
+  };
+
+  const [stage1Data, stage2Data] = await Promise.all([
+    fetchJson(stage1File),
+    fetchJson(stage2File),
+  ]);
+
+  // Build a three‑version article source map (fundus will be added later)
+  const articleSources = new Map<string, { fundus?: string; stage1?: string; stage2?: string }>();
+  for (const url of articleMap.keys()) {
+    const sources: { fundus?: string; stage1?: string; stage2?: string } = {};
+    if (stage1Data[url]) sources.stage1 = stage1Data[url];
+    if (stage2Data[url]) sources.stage2 = stage2Data[url];
+    // fundus will be populated once that pipeline is built
+    articleSources.set(url, sources);
+  }
+
+  new InfoBox(viewer, articleMap, articleSources);
 } catch (err) {
   console.error('GDELT fetch failed:', err);
 }
