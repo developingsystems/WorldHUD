@@ -1,43 +1,30 @@
-name: GDELT NGram Article Reconstruction
+name: Reconstruct GDELT Full Articles
 
 on:
   schedule:
-    # Run every minute we need a stage (6,21,36,51 for stage1; 17,32,47,2 for stage2)
+    # 6 minutes after each quarter‑hour – all NGram files are ready
     - cron: '6,21,36,51 * * * *'
-    - cron: '17,32,47,2 * * * *'
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   reconstruct:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
       - name: Install gdeltnews
-        run: pip install gdeltnews
-      - name: Determine stage
-        id: stage
         run: |
-          minute=$(date -u +%M)
-          case $minute in
-            06|21|36|51) echo "STAGE=stage1" >> $GITHUB_ENV ;;
-            17|32|47|02) echo "STAGE=stage2" >> $GITHUB_ENV ;;
-            *) echo "STAGE=none" >> $GITHUB_ENV ;;
-          esac
-      - name: Run pipeline
-        if: env.STAGE != 'none'
+          python -m pip install --upgrade pip
+          pip install gdeltnews
+      - name: Run reconstruction
+        id: reconstruct
         run: python scripts/gdeltnews_pipeline.py
-      - name: Commit article files
-        if: env.STAGE != 'none'
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Update gdeltnews articles (${{ env.STAGE }})"
-          file_pattern: 'articles_*.json'
-          commit_user_name: github-actions[bot]
-          commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Upload to GitHub Releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TIMESTAMP: ${{ steps.reconstruct.outputs.timestamp }}
+        run: python scripts/upload_release.py
