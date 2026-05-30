@@ -64,6 +64,16 @@ async function main() {
   viewer.clock.clockStep = ClockStep.SYSTEM_CLOCK_MULTIPLIER;
   viewer.clock.clockRange = ClockRange.UNBOUNDED;
 
+  // Temporary timestamp label (top‑center)
+  const timestampLabel = document.createElement('div');
+  timestampLabel.style.cssText = `
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.55); color: white; font-size: 12px;
+    z-index: 1001; pointer-events: none;
+  `;
+  viewer.container.appendChild(timestampLabel);
+
   // ---------- Cache ----------
   const chunkCache = new Map<string, {
     geojson: import('geojson').FeatureCollection;
@@ -79,17 +89,18 @@ async function main() {
     // Called when a chunk finishes fetching
     const cached = chunkCache.get(ts);
     if (cached && infoBox) {
-      updateDisplay(cached);
+      updateDisplay(ts, cached);
       schedulePreFetch();
     }
   });
 
   // ---------- Display updater ----------
-  function updateDisplay(cached: {
+  function updateDisplay(ts: string, cached: {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
     articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
   }) {
+    timestampLabel.textContent = `Chunk: ${ts.slice(0, 8)} ${ts.slice(8, 12)} UTC`;
     viewer.dataSources.removeAll();
     const ds = new GeoJsonDataSource('chunk');
     ds.load(cached.geojson, {
@@ -143,7 +154,7 @@ async function main() {
 
     // Already cached → show immediately
     if (chunkCache.has(ts)) {
-      updateDisplay(chunkCache.get(ts)!);
+      updateDisplay(ts, chunkCache.get(ts)!);
       lastDisplayedTs = ts;
       schedulePreFetch();
       return;
