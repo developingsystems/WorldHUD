@@ -45,7 +45,11 @@ export class FetchQueue {
       if (existing.priority === 'low' && priority === 'high') {
         existing.priority = 'high';
         // Re‑sort waiting so high‑priority tasks come first
-        this.waiting.sort((a, b) => (a.priority === 'high' ? -1 : 1));
+        this.waiting.sort((a, b) => {
+          if (a.priority === 'high' && b.priority === 'low') return -1;
+          if (a.priority === 'low' && b.priority === 'high') return 1;
+          return 0;
+        });
       }
       return true;
     }
@@ -102,7 +106,11 @@ export class FetchQueue {
 
   private processQueue() {
     // Sort waiting so high‑priority tasks come first
-    this.waiting.sort((a, b) => (a.priority === 'high' ? -1 : 1));
+    this.waiting.sort((a, b) => {
+      if (a.priority === 'high' && b.priority === 'low') return -1;
+      if (a.priority === 'low' && b.priority === 'high') return 1;
+      return 0;
+    });
 
     while (this.runningCount < this.maxConcurrent && this.waiting.length > 0) {
       const next = this.waiting.shift()!;
