@@ -225,12 +225,11 @@ export class InfoBox {
     // Build dropdown (visible only when an entity is selected)
     this.dropdown = document.createElement('select');
     this.dropdown.className = 'infobox-source-select';
-    this.dropdown.style.display = 'none'; // hidden until we have an entity
+    this.dropdown.style.display = 'none';
     this.dropdown.addEventListener('change', () => {
       this.currentSource = this.dropdown.value as 'fundus' | 'stage1' | 'stage2';
       this.refreshArticle();
     });
-    // We'll insert the dropdown as the first child of the container when showing
 
     // Listen for entity selection changes
     this.removeListener = viewer.selectedEntityChanged.addEventListener(
@@ -244,10 +243,10 @@ export class InfoBox {
       return;
     }
     this.currentEntity = entity;
-    // Determine the best available source for this article
     const p = entity.properties.getValue() || {};
     const url = (p.sourceUrl as string) || '';
     const sources = this.articleSources.get(url) || {};
+
     // Pick the longest available version by default
     const candidates: { source: 'fundus' | 'stage1' | 'stage2'; text: string }[] = [];
     if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
@@ -258,7 +257,6 @@ export class InfoBox {
         cur.text.length > best.text.length ? cur : best
       ).source;
     }
-    // If no sources are available, keep the previous default (stage2), but it'll show a placeholder.
 
     const { title, body } = renderGdelt(entity, this.articleMap, this.articleSources, this.currentSource);
     this.currentTitle = title;
@@ -277,7 +275,7 @@ export class InfoBox {
   private show(): void {
     this.container.innerHTML = '';
 
-    // Dropdown first
+    // Dropdown
     const p = this.currentEntity?.properties?.getValue() || {};
     const url = (p.sourceUrl as string) || '';
     const sources = this.articleSources.get(url) || {};
@@ -318,6 +316,34 @@ export class InfoBox {
     this.container.style.display = 'none';
     this.container.innerHTML = '';
     this.dropdown.style.display = 'none';
+  }
+
+  /** Replace the underlying data and refresh the currently selected entity. */
+  updateData(
+    articleMap: Map<string, Record<string, unknown>[]>,
+    articleSources: ArticleSources,
+  ) {
+    this.articleMap = articleMap;
+    this.articleSources = articleSources;
+    if (this.currentEntity) {
+      // Re‑select the best source for the new data
+      const p = this.currentEntity.properties?.getValue() || {};
+      const url = (p.sourceUrl as string) || '';
+      const sources = articleSources.get(url) || {};
+      const candidates: { source: 'fundus' | 'stage1' | 'stage2'; text: string }[] = [];
+      if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
+      if (sources.stage1) candidates.push({ source: 'stage1', text: sources.stage1 });
+      if (sources.stage2) candidates.push({ source: 'stage2', text: sources.stage2 });
+      if (candidates.length > 0) {
+        this.currentSource = candidates.reduce((best, cur) =>
+          cur.text.length > best.text.length ? cur : best
+        ).source;
+      }
+      const { title, body } = renderGdelt(this.currentEntity, articleMap, articleSources, this.currentSource);
+      this.currentTitle = title;
+      this.currentBody = body;
+      this.show();
+    }
   }
 
   destroy(): void {
