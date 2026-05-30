@@ -97,13 +97,27 @@ async function main() {
     }
   });
 
+  // ---------- Helper: NATO‑style date formatting ----------
+  function formatNato(ts: string): string {
+    const y = ts.slice(0, 4);
+    const m = ts.slice(4, 6);
+    const d = ts.slice(6, 8);
+    const months = [
+      'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+      'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
+    ];
+    const monthAbbr = months[parseInt(m, 10) - 1] || m;
+    const time = ts.slice(8, 12);
+    return `${d} ${monthAbbr} ${y} ${time} UTC`;
+  }
+
   // ---------- Display updater ----------
   function updateDisplay(ts: string, cached: {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
     articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
   }) {
-    timestampLabel.textContent = `Chunk: ${ts.slice(0, 4)}.${ts.slice(4, 6)}.${ts.slice(6, 8)} ${ts.slice(8, 12)} UTC`;
+    timestampLabel.textContent = `Chunk: ${formatNato(ts)}`;
 
     // Load new data source off‑screen before removing the old one
     const newDs = new GeoJsonDataSource('chunk');
