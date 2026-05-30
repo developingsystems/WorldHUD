@@ -98,7 +98,6 @@ async function main() {
       strokeWidth: 2,
     }).then(() => {
       viewer.dataSources.add(ds);
-      viewer.flyTo(ds);
     });
     if (infoBox) {
       infoBox.updateData(cached.articleMap, cached.articleSources);
