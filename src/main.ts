@@ -84,6 +84,9 @@ async function main() {
   let infoBox: InfoBox | null = null;
   let latestPublishedTs = '';   // most recent chunk known via lastupdate.txt
 
+  // Current displayed data source – used for flicker‑free swap
+  let currentDataSource: GeoJsonDataSource | null = null;
+
   // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
     // Called when a chunk finishes fetching
@@ -100,16 +103,22 @@ async function main() {
     articleMap: Map<string, Record<string, unknown>[]>;
     articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
   }) {
-    timestampLabel.textContent = `Chunk: ${ts.slice(0, 8)} ${ts.slice(8, 12)} UTC`;
-    viewer.dataSources.removeAll();
-    const ds = new GeoJsonDataSource('chunk');
-    ds.load(cached.geojson, {
+    timestampLabel.textContent = `Chunk: ${ts.slice(0, 4)}.${ts.slice(4, 6)}.${ts.slice(6, 8)} ${ts.slice(8, 12)} UTC`;
+
+    // Load new data source off‑screen before removing the old one
+    const newDs = new GeoJsonDataSource('chunk');
+    newDs.load(cached.geojson, {
       stroke: Color.HOTPINK,
       fill: Color.PINK.withAlpha(0.5),
       strokeWidth: 2,
     }).then(() => {
-      viewer.dataSources.add(ds);
+      viewer.dataSources.add(newDs);
+      if (currentDataSource) {
+        viewer.dataSources.remove(currentDataSource);
+      }
+      currentDataSource = newDs;
     });
+
     if (infoBox) {
       infoBox.updateData(cached.articleMap, cached.articleSources);
     }
