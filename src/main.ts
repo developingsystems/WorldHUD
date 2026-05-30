@@ -80,7 +80,7 @@ async function main() {
     const cached = chunkCache.get(ts);
     if (cached && infoBox) {
       updateDisplay(cached);
-      schedulePreFetch(ts);
+      schedulePreFetch();
     }
   });
 
@@ -106,7 +106,7 @@ async function main() {
   }
 
   // ---------- Adaptive pre‑fetch ----------
-  function schedulePreFetch(currentTs: string) {
+  function schedulePreFetch() {
     const multiplier = viewer.clock.multiplier;
     let windowSize = 0;
     if (multiplier <= 60) windowSize = 2;         // current ±2
@@ -128,7 +128,7 @@ async function main() {
             const data = await fetchAndCacheChunk(ts, signal);
             chunkCache.set(ts, data);
           } catch (err) {
-            if (err.name === 'AbortError') return;
+            if ((err as any).name === 'AbortError') return;
             // ignore pre‑fetch failures
           }
         });
@@ -146,7 +146,7 @@ async function main() {
     if (chunkCache.has(ts)) {
       updateDisplay(chunkCache.get(ts)!);
       lastDisplayedTs = ts;
-      schedulePreFetch(ts);
+      schedulePreFetch();
       return;
     }
 
@@ -156,7 +156,7 @@ async function main() {
         const data = await fetchAndCacheChunk(ts, signal);
         chunkCache.set(ts, data);
       } catch (err) {
-        if (err.name === 'AbortError') return;
+        if ((err as any).name === 'AbortError') return;
         console.error(`Failed to load chunk ${ts}:`, err);
       }
     });
