@@ -117,7 +117,7 @@ async function main() {
     articleMap: Map<string, Record<string, unknown>[]>;
     articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
   }) {
-    timestampLabel.textContent = `Chunk: ${formatNato(ts)}`;
+    timestampLabel.textContent = formatNato(ts);
 
     // Load new data source off‑screen before removing the old one
     const newDs = new GeoJsonDataSource('chunk');
