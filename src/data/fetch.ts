@@ -2,20 +2,31 @@ import type { FeatureCollection } from 'geojson';
 
 const PROXY = import.meta.env.VITE_CORS_PROXY_URL || '';
 
-export async function fetchLatestChunk(): Promise<{ geojson: FeatureCollection; timestamp: string }> {
+export async function fetchLatestChunk(
+  ts?: string,
+  signal?: AbortSignal,
+): Promise<{ geojson: FeatureCollection; timestamp: string }> {
   if (!PROXY) throw new Error('Missing VITE_CORS_PROXY_URL in .env');
 
-  // 1. Get latest chunk timestamp
-  const lastUpdateUrl = 'http://data.gdeltproject.org/gdeltv2/lastupdate.txt';
-  const lastUpdateRes = await fetch(PROXY + encodeURIComponent(lastUpdateUrl));
-  if (!lastUpdateRes.ok) throw new Error(`lastupdate.txt failed: ${lastUpdateRes.status}`);
-  const text = await lastUpdateRes.text();
-  const latestFileUrl = text.trim().split('\n')[0].split(' ')[2];
-  const match = latestFileUrl.match(/(\d{14})\.export\.CSV\.zip/);
-  if (!match) throw new Error('Could not extract timestamp');
-  const timestamp = match[1];
+  // ---------- 1. Determine chunk timestamp ----------
+  let timestamp: string;
 
-  // 2. Build URLs for all three tables
+  if (ts) {
+    // Historical mode – use the exact timestamp provided by the clock
+    timestamp = ts;
+  } else {
+    // Real‑time mode – get the latest timestamp from lastupdate.txt
+    const lastUpdateUrl = 'http://data.gdeltproject.org/gdeltv2/lastupdate.txt';
+    const lastUpdateRes = await fetch(PROXY + encodeURIComponent(lastUpdateUrl), { signal });
+    if (!lastUpdateRes.ok) throw new Error(`lastupdate.txt failed: ${lastUpdateRes.status}`);
+    const text = await lastUpdateRes.text();
+    const latestFileUrl = text.trim().split('\n')[0].split(' ')[2];
+    const match = latestFileUrl.match(/(\d{14})\.export\.CSV\.zip/);
+    if (!match) throw new Error('Could not extract timestamp from lastupdate.txt');
+    timestamp = match[1];
+  }
+
+  // ---------- 2. Build URLs ----------
   const baseUrl = `http://data.gdeltproject.org/gdeltv2/${timestamp}`;
   const files = {
     events: `${baseUrl}.export.CSV.zip`,
@@ -23,35 +34,41 @@ export async function fetchLatestChunk(): Promise<{ geojson: FeatureCollection; 
     gkg: `${baseUrl}.gkg.csv.zip`,
   };
 
-  // 3. Fetch all three in parallel (with timeout + retry)
+  // ---------- 3. Fetch helper with timeout + retry + abort ----------
   async function fetchBlob(url: string): Promise<Blob> {
     const maxRetries = 5;
-    const baseTimeout = 15000; // 15 seconds
+    const baseTimeout = 15000; // 15 seconds per attempt
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const timeout = baseTimeout * attempt; // backoff: 15s, 30s, 45s
-      const signal = AbortSignal.timeout(timeout);
+      const timeout = baseTimeout * attempt;
+      const localSignal = AbortSignal.timeout(timeout);
+      // Combine the external abort signal with our own timeout
+      const combinedSignal = signal
+        ? AbortSignal.any([signal, localSignal])
+        : localSignal;
       try {
-        const res = await fetch(url, { signal });
+        const res = await fetch(url, { signal: combinedSignal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return await res.blob();
       } catch (err: any) {
-        if (attempt < maxRetries && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
-          console.warn(`Fetch attempt ${attempt} timed out after ${timeout}s, retrying...`);
+        if (attempt < maxRetries &&
+            (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+          console.warn(`Fetch attempt ${attempt} for ${url} timed out, retrying...`);
           continue;
         }
         throw err;
       }
     }
-    throw new Error('fetchBlob: unreachable');
+    throw new Error(`fetchBlob: all retries exhausted for ${url}`);
   }
 
+  // ---------- 4. Fetch all three in parallel ----------
   const [eventsBlob, mentionsBlob, gkgBlob] = await Promise.all([
     fetchBlob(PROXY + encodeURIComponent(files.events)),
     fetchBlob(PROXY + encodeURIComponent(files.mentions)),
     fetchBlob(PROXY + encodeURIComponent(files.gkg)),
   ]);
 
-  // 4. Unzip helper
+  // ---------- 5. Unzip helper ----------
   async function unzipCsv(blob: Blob): Promise<string> {
     const { unzip } = await import('fflate');
     const buf = new Uint8Array(await blob.arrayBuffer());
@@ -62,34 +79,33 @@ export async function fetchLatestChunk(): Promise<{ geojson: FeatureCollection; 
     return new TextDecoder().decode(files[filename]);
   }
 
-  // 5. Unzip all three in parallel
+  // ---------- 6. Unzip all three in parallel ----------
   const [eventsCsv, mentionsCsv, gkgCsv] = await Promise.all([
     unzipCsv(eventsBlob),
     unzipCsv(mentionsBlob),
     unzipCsv(gkgBlob),
   ]);
 
-  // 6. Spawn workers
-  const eventsWorker = new Worker(new URL('../workers/events-worker.ts', import.meta.url), { type: 'module' });
+  // ---------- 7. Spawn workers ----------
+  const eventsWorker   = new Worker(new URL('../workers/events-worker.ts',   import.meta.url), { type: 'module' });
   const mentionsWorker = new Worker(new URL('../workers/mentions-worker.ts', import.meta.url), { type: 'module' });
-  const gkgWorker = new Worker(new URL('../workers/gkg-worker.ts', import.meta.url), { type: 'module' });
+  const gkgWorker      = new Worker(new URL('../workers/gkg-worker.ts',      import.meta.url), { type: 'module' });
 
-  // 7. Create promises for each worker
   const eventsPromise = new Promise<any>((resolve, reject) => {
     eventsWorker.onmessage = (e) => (e.data.error ? reject(e.data.error) : resolve(e.data.geojson));
-    eventsWorker.onerror = (err) => reject(err);
+    eventsWorker.onerror   = (err) => reject(err);
     eventsWorker.postMessage({ csvText: eventsCsv });
   });
 
   const mentionsPromise = new Promise<any[]>((resolve, reject) => {
     mentionsWorker.onmessage = (e) => (e.data.error ? reject(e.data.error) : resolve(e.data.mentions));
-    mentionsWorker.onerror = (err) => reject(err);
+    mentionsWorker.onerror   = (err) => reject(err);
     mentionsWorker.postMessage({ csvText: mentionsCsv });
   });
 
   const gkgPromise = new Promise<any[]>((resolve, reject) => {
     gkgWorker.onmessage = (e) => (e.data.error ? reject(e.data.error) : resolve(e.data.records));
-    gkgWorker.onerror = (err) => reject(err);
+    gkgWorker.onerror   = (err) => reject(err);
     gkgWorker.postMessage({ csvText: gkgCsv });
   });
 
@@ -99,8 +115,8 @@ export async function fetchLatestChunk(): Promise<{ geojson: FeatureCollection; 
   console.log(`✅ Loaded ${mentionsArray.length} mentions`);
   console.log(`✅ Loaded ${gkgRecords.length} GKG records`);
 
-  // 8. Build lookup maps …
-  const mentionsMap = new Map<string, string[]>();   // GLOBALEVENTID → MentionIdentifier[]
+  // ---------- 8. Build lookup maps ----------
+  const mentionsMap = new Map<string, string[]>();
   for (const { globalEventId, mentionId } of mentionsArray) {
     if (!mentionsMap.has(globalEventId)) mentionsMap.set(globalEventId, []);
     mentionsMap.get(globalEventId)!.push(mentionId);
@@ -111,7 +127,7 @@ export async function fetchLatestChunk(): Promise<{ geojson: FeatureCollection; 
     gkgMap.set(mentionId, { pageTitle, counts });
   }
 
-  // 9. Enrich events with headlines and counts
+  // ---------- 9. Enrich events with headlines and counts ----------
   for (const feature of (eventsGeojson as FeatureCollection).features) {
     const globalEventId = feature.properties?.globalEventId as string;
     const mentionIds = mentionsMap.get(globalEventId) || [];
@@ -130,5 +146,5 @@ export async function fetchLatestChunk(): Promise<{ geojson: FeatureCollection; 
     }
   }
 
-    return { geojson: eventsGeojson as FeatureCollection, timestamp };
+  return { geojson: eventsGeojson as FeatureCollection, timestamp };
 }
