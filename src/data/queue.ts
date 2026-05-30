@@ -21,27 +21,30 @@ export class FetchQueue {
     this.onChunkReady = onChunkReady;
   }
 
+  /** Update the latest known published chunk (from lastupdate.txt polling). */
   setLatestChunk(ts: string) {
     this.latestChunkTimestamp = ts;
   }
 
   /**
-   * Enqueue a chunk. Returns `true` if the chunk is already tracked (cached/in‑progress).
-   * If the queue is full, evicts the oldest low‑priority item.
+   * Enqueue a chunk fetch. Returns `true` if the chunk was already being
+   * tracked (cached / in‑progress / queued), `false` if newly enqueued.
+   * If the queue is full, the oldest low‑priority item is evicted.
    */
   enqueue(
     ts: ChunkTimestamp,
     priority: 'high' | 'low',
     fetchFn: (signal: AbortSignal) => Promise<void>,
   ): boolean {
-    // Guardrail – never request a chunk newer than the latest published
+    // Guardrail – never request a chunk that isn't published yet
     if (ts > this.latestChunkTimestamp) return false;
 
+    // Already tracked → upgrade priority if needed
     if (this.active.has(ts)) {
       const existing = this.active.get(ts)!;
       if (existing.priority === 'low' && priority === 'high') {
         existing.priority = 'high';
-        // re‑sort waiting so high‑priority items come first
+        // Re‑sort waiting so high‑priority tasks come first
         this.waiting.sort((a, b) => (a.priority === 'high' ? -1 : 1));
       }
       return true;
@@ -56,9 +59,10 @@ export class FetchQueue {
       status: 'queued',
     };
 
-    // Evict if we're over capacity
+    // Eviction – keep the queue within its size limit
     if (this.waiting.length >= this.maxPending) {
       let evicted = false;
+      // 1) Try to drop a queued low‑priority task
       for (let i = this.waiting.length - 1; i >= 0; i--) {
         if (this.waiting[i].priority === 'low') {
           this.waiting[i].controller.abort();
@@ -67,8 +71,8 @@ export class FetchQueue {
           break;
         }
       }
+      // 2) If no queued low‑priority task, abort the oldest active low‑priority task
       if (!evicted) {
-        // Abort the oldest active low‑priority task
         for (const [key, t] of this.active) {
           if (t.priority === 'low' && t.status === 'active') {
             t.controller.abort();
@@ -86,6 +90,7 @@ export class FetchQueue {
     return false;
   }
 
+  /** Cancel a queued (not yet started) chunk. */
   cancel(ts: ChunkTimestamp) {
     const task = this.active.get(ts);
     if (task && task.status === 'queued') {
@@ -96,11 +101,14 @@ export class FetchQueue {
   }
 
   private processQueue() {
+    // Sort waiting so high‑priority tasks come first
     this.waiting.sort((a, b) => (a.priority === 'high' ? -1 : 1));
+
     while (this.runningCount < this.maxConcurrent && this.waiting.length > 0) {
       const next = this.waiting.shift()!;
       next.status = 'active';
       this.runningCount++;
+
       next
         .factory(next.controller.signal)
         .then(() => {
