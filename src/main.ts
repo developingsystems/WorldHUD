@@ -89,12 +89,18 @@ async function main() {
 
   // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
-    // Called when a chunk finishes fetching
+    // Called when a chunk finishes fetching – only display it if the clock
+    // is currently pointing at this chunk.
     const cached = chunkCache.get(ts);
-    if (cached && infoBox) {
+    if (!cached || !infoBox) return;
+
+    const clockTs = chunkTimestamp(viewer.clock.currentTime);
+    if (ts === clockTs) {
       updateDisplay(ts, cached);
       schedulePreFetch();
     }
+    // Otherwise the chunk stays in the cache, ready for when the clock
+    // returns to this time.
   });
 
   // ---------- Helper: NATO‑style date formatting ----------
