@@ -100,13 +100,11 @@ async function main() {
     const cached = chunkCache.get(ts);
     if (!cached || !infoBox) return;
 
-    // Always update the pre‑fetch window around the current clock position.
-    schedulePreFetch();
-
-    // Only display the chunk if the clock is currently on it.
+    // Only update display / pre‑fetch when the clock is on this chunk.
     const clockTs = chunkTimestamp(viewer.clock.currentTime);
     if (ts === clockTs) {
       updateDisplay(ts, cached);
+      schedulePreFetch();      // pre‑fetch neighbours only after current chunk is shown
     }
   });
 
