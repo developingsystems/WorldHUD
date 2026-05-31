@@ -59,10 +59,12 @@ export class FetchQueue {
       status: 'queued',
     };
 
+    // Evict if queue is full
     if (this.waiting.length >= this.maxPending) {
       let evicted = false;
 
-      for (let i = this.waiting.length - 1; i >= 0; i--) {
+      // 1) Drop the oldest low-priority queued task (first low-priority encountered)
+      for (let i = 0; i < this.waiting.length; i++) {
         if (this.waiting[i].priority === 'low') {
           this.waiting[i].controller.abort();
           this.waiting.splice(i, 1);
@@ -71,12 +73,14 @@ export class FetchQueue {
         }
       }
 
+      // 2) No low-priority – drop the oldest queued request (front of array)
       if (!evicted && this.waiting.length > 0) {
-        const oldest = this.waiting.pop()!;
+        const oldest = this.waiting.shift()!;
         oldest.controller.abort();
         evicted = true;
       }
 
+      // 3) Last resort – abort oldest active low-priority task
       if (!evicted) {
         for (const [key, t] of this.active) {
           if (t.priority === 'low' && t.status === 'active') {
@@ -89,7 +93,13 @@ export class FetchQueue {
       }
     }
 
-    this.waiting.unshift(task);
+    // Insert at front for high priority, at end for low priority
+    if (priority === 'high') {
+      this.waiting.unshift(task);
+    } else {
+      this.waiting.push(task);
+    }
+
     this.active.set(ts, task);
     this.processQueue();
     return false;
@@ -104,7 +114,6 @@ export class FetchQueue {
     }
   }
 
-  /** Set all queued/active tasks to low priority, except the given timestamp. */
   downgradeAllExcept(keepTs: ChunkTimestamp) {
     for (const task of this.active.values()) {
       if (task.ts !== keepTs && task.priority === 'high') {
@@ -118,7 +127,6 @@ export class FetchQueue {
     });
   }
 
-  /** Abort all active and queued tasks that do not match the given timestamp. */
   abortAllExcept(keepTs: ChunkTimestamp) {
     for (const [ts, task] of this.active) {
       if (ts !== keepTs) {
@@ -129,7 +137,6 @@ export class FetchQueue {
         }
       }
     }
-    // Remove aborted tasks from waiting array
     this.waiting = this.waiting.filter(t => t.ts === keepTs);
     this.processQueue();
   }
