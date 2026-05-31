@@ -178,8 +178,10 @@ async function main() {
 
     if (ts > latestPublishedTs) return;
 
-    // Cancel all stale tasks leftover from fast scrubbing
-    fetchQueue.abortAllExcept(ts);
+    // Only aggressively abort when moving too fast for pre‑fetch to be useful
+    if (Math.abs(viewer.clock.multiplier) > 300) {
+      fetchQueue.abortAllExcept(ts);
+    }
 
     // Normal path – chunk exists, show it (or fetch if not cached)
     if (chunkCache.has(ts)) {
