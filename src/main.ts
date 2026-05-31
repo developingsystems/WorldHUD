@@ -142,8 +142,9 @@ async function main() {
   function schedulePreFetch() {
     const multiplier = viewer.clock.multiplier;
     let windowSize = 0;
-    if (multiplier <= 60) windowSize = 2;         // current ±2
-    else if (multiplier <= 300) windowSize = 1;   // current ±1
+    if (multiplier <= 60) windowSize = 3;          // current ±3
+    else if (multiplier <= 150) windowSize = 2;    // current ±2
+    else if (multiplier <= 300) windowSize = 1;    // current ±1
     // > 300× → only fetch current
 
     const offsets: number[] = [];
