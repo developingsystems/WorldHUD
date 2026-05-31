@@ -178,6 +178,9 @@ async function main() {
 
     if (ts > latestPublishedTs) return;
 
+    // Cancel all stale tasks leftover from fast scrubbing
+    fetchQueue.abortAllExcept(ts);
+
     // Normal path – chunk exists, show it (or fetch if not cached)
     if (chunkCache.has(ts)) {
       updateDisplay(ts, chunkCache.get(ts)!);
