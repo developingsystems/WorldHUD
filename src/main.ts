@@ -128,8 +128,6 @@ async function main() {
     articleMap: Map<string, Record<string, unknown>[]>;
     articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
   }) {
-    timestampLabel.textContent = formatNato(ts);
-
     // Load new data source off‑screen before removing the old one
     const newDs = new GeoJsonDataSource('chunk');
     newDs.load(cached.geojson, {
@@ -142,6 +140,8 @@ async function main() {
         viewer.dataSources.remove(currentDataSource);
       }
       currentDataSource = newDs;
+      // Update label only after the points are visible
+      timestampLabel.textContent = formatNato(ts);
     });
 
     if (infoBox) {
@@ -226,7 +226,7 @@ async function main() {
   // ---------- Clock tick ----------
   let lastDisplayedTs = '';
   viewer.clock.onTick.addEventListener((clock) => {
-    if (!initialLoadComplete) return;   // ← block until initial load finishes
+    if (!initialLoadComplete) return;   // block until initial load finishes
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
@@ -237,7 +237,8 @@ async function main() {
         updateDisplay(fallbackTs, chunkCache.get(fallbackTs)!);
         lastDisplayedTs = fallbackTs;
         schedulePreFetch();
-      } else {
+      } else if (!fetchQueue.isActive(fallbackTs)) {
+        // Only enqueue if not already being fetched
         fetchQueue.enqueue(fallbackTs, 'high', async (signal) => {
           const data = await fetchAndCacheChunk(fallbackTs, signal);
           chunkCache.set(fallbackTs, data);
@@ -301,12 +302,24 @@ async function main() {
     }
   }
 
-  // ---------- Initial chunk load ----------
-  // Run a single poll synchronously so latestPublishedTs is correct before the clock ticks
+  // ---------- Initial load ----------
+  // Run a single poll to get the true latest published timestamp
   await pollLatest();
+
+  // Explicitly load and display the latest published chunk so the globe
+  // is never blank on startup, even during the 5‑minute gap.
+  const initialTs = latestPublishedTs;
+  fetchQueue.enqueue(initialTs, 'high', async (signal) => {
+    const data = await fetchAndCacheChunk(initialTs, signal);
+    chunkCache.set(initialTs, data);
+    updateDisplay(initialTs, data);
+    lastDisplayedTs = initialTs;
+    schedulePreFetch();
+  });
+
   initialLoadComplete = true;   // now the clock tick is allowed to run
 
-  // Kick off polling timer (first poll already done)
+  // Kick off the regular polling timer
   setInterval(pollLatest, 60_000);
 
   // ---------- InfoBox ----------
