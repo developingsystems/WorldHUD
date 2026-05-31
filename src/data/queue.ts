@@ -1,4 +1,4 @@
-type ChunkTimestamp = string;type ChunkTimestamp = string;
+type ChunkTimestamp = string;
 
 interface FetchTask {
   ts: ChunkTimestamp;
@@ -54,10 +54,8 @@ export class FetchQueue {
       status: 'queued',
     };
 
-    // Evict if waiting queue is full
     if (this.waiting.length >= this.maxPending) {
       let evicted = false;
-      // 1) Try a low‑priority queued task
       for (let i = this.waiting.length - 1; i >= 0; i--) {
         if (this.waiting[i].priority === 'low') {
           this.waiting[i].controller.abort();
@@ -66,13 +64,10 @@ export class FetchQueue {
           break;
         }
       }
-      // 2) No low‑priority – drop the oldest queued request
       if (!evicted && this.waiting.length > 0) {
         const oldest = this.waiting.shift()!;
         oldest.controller.abort();
-        evicted = true;
       }
-      // 3) Last resort – abort oldest active low‑priority task
       if (!evicted) {
         for (const [key, t] of this.active) {
           if (t.priority === 'low' && t.status === 'active') {
