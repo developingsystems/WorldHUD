@@ -21,7 +21,7 @@ function chunkTimestamp(clockTime: JulianDate): string {
 // ---------- Core fetch logic for a single chunk ----------
 async function fetchAndCacheChunk(
   ts: string,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<{
   geojson: import('geojson').FeatureCollection;
   articleMap: Map<string, Record<string, unknown>[]>;
@@ -29,7 +29,6 @@ async function fetchAndCacheChunk(
 }> {
   const { geojson } = await fetchChunk(ts, signal);
 
-  // Build articleMap (SOURCEURL → events)
   const articleMap = new Map<string, Record<string, unknown>[]>();
   for (const f of geojson.features) {
     const props = f.properties;
@@ -40,7 +39,6 @@ async function fetchAndCacheChunk(
     }
   }
 
-  // Try to fetch gdeltnews-reconstructed articles from GitHub Releases
   const articleSources = new Map<string, { fundus?: string; stage1?: string; stage2?: string }>();
   try {
     const base = 'https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles';
@@ -48,13 +46,11 @@ async function fetchAndCacheChunk(
     if (res.ok) {
       const data: Record<string, string> = await res.json();
       for (const url of articleMap.keys()) {
-        if (data[url]) {
-          articleSources.set(url, { stage2: data[url] });
-        }
+        if (data[url]) articleSources.set(url, { stage2: data[url] });
       }
     }
   } catch {
-    // Article JSON not yet available – will be filled later by the polling timer
+    // article JSON not yet ready
   }
 
   return { geojson, articleMap, articleSources };
@@ -64,22 +60,18 @@ async function fetchAndCacheChunk(
 async function main() {
   const viewer = new Viewer('cesiumContainer', { infoBox: false });
 
-  // Start clock ticking immediately (real‑time mode by default)
   viewer.clock.shouldAnimate = true;
   viewer.clock.clockStep = ClockStep.SYSTEM_CLOCK_MULTIPLIER;
   viewer.clock.clockRange = ClockRange.UNBOUNDED;
 
-  // Temporary timestamp label (top‑center)
   const timestampLabel = document.createElement('div');
   timestampLabel.style.cssText = `
     position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-    padding: 4px 8px;
-    background: rgba(0,0,0,0.55); color: white; font-size: 12px;
-    z-index: 1001; pointer-events: none;
+    padding: 4px 8px; background: rgba(0,0,0,0.55); color: white;
+    font-size: 12px; z-index: 1001; pointer-events: none;
   `;
   viewer.container.appendChild(timestampLabel);
 
-  // ---------- Cache ----------
   const chunkCache = new Map<string, {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
@@ -87,48 +79,34 @@ async function main() {
   }>();
 
   let infoBox: InfoBox | null = null;
-  let latestPublishedTs = '';   // most recent chunk known via lastupdate.txt
+  let latestPublishedTs = '';
 
-  // Current displayed data source – used for flicker‑free swap
   let currentDataSource: GeoJsonDataSource | null = null;
 
-  let initialLoadComplete = false;
-  
   // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
-    // Called when a chunk finishes fetching.
     const cached = chunkCache.get(ts);
     if (!cached || !infoBox) return;
-
-    // Only update display / pre‑fetch when the clock is on this chunk.
     const clockTs = chunkTimestamp(viewer.clock.currentTime);
     if (ts === clockTs) {
       updateDisplay(ts, cached);
-      schedulePreFetch();      // pre‑fetch neighbours only after current chunk is shown
+      schedulePreFetch();
     }
   });
 
-  // ---------- Helper: NATO‑style date formatting ----------
   function formatNato(ts: string): string {
-    const y = ts.slice(0, 4);
-    const m = ts.slice(4, 6);
-    const d = ts.slice(6, 8);
-    const months = [
-      'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
-      'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
-    ];
-    const monthAbbr = months[parseInt(m, 10) - 1] || m;
-    const time = ts.slice(8, 12);
+    const y = ts.slice(0, 4), m = ts.slice(4, 6), d = ts.slice(6, 8);
+    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const monthAbbr = months[parseInt(m,10)-1] || m;
+    const time = ts.slice(8,12);
     return `${d} ${monthAbbr} ${y} ${time} UTC`;
   }
 
-  // ---------- Display updater ----------
   function updateDisplay(ts: string, cached: {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
     articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
   }) {
-    // Load new data source off‑screen before removing the old one
     const newDs = new GeoJsonDataSource('chunk');
     newDs.load(cached.geojson, {
       stroke: Color.HOTPINK,
@@ -136,88 +114,57 @@ async function main() {
       strokeWidth: 2,
     }).then(() => {
       viewer.dataSources.add(newDs);
-      if (currentDataSource) {
-        viewer.dataSources.remove(currentDataSource);
-      }
+      if (currentDataSource) viewer.dataSources.remove(currentDataSource);
       currentDataSource = newDs;
-      // Update label only after the points are visible
       timestampLabel.textContent = formatNato(ts);
     });
 
-    if (infoBox) {
-      infoBox.updateData(cached.articleMap, cached.articleSources);
-    }
+    if (infoBox) infoBox.updateData(cached.articleMap, cached.articleSources);
   }
 
   // ---------- Adaptive pre‑fetch ----------
   function schedulePreFetch() {
     const animating = viewer.clock.shouldAnimate;
     const multiplier = Math.abs(viewer.clock.multiplier);
-    let windowSize = 0;
+    let w = 0;
+    if (!animating || multiplier <= 1) w = 3;
+    else if (multiplier <= 60) w = 3;
+    else if (multiplier <= 150) w = 2;
+    else if (multiplier <= 300) w = 1;
 
-    // Paused or real‑time → maximum window
-    if (!animating || multiplier <= 1) {
-      windowSize = 3;
-    } else if (multiplier <= 60) {
-      windowSize = 3;
-    } else if (multiplier <= 150) {
-      windowSize = 2;
-    } else if (multiplier <= 300) {
-      windowSize = 1;
-    }
+    const cur = chunkTimestamp(viewer.clock.currentTime);
+    const y = parseInt(cur.slice(0,4),10), mo = parseInt(cur.slice(4,6),10)-1,
+          d = parseInt(cur.slice(6,8),10), h = parseInt(cur.slice(8,10),10),
+          mi = parseInt(cur.slice(10,12),10);
+    const base = new Date(Date.UTC(y, mo, d, h, mi, 0, 0));
 
-    // Get the current chunk timestamp and convert back to a Date
-    const currentTs = chunkTimestamp(viewer.clock.currentTime);
-    const y = parseInt(currentTs.slice(0, 4), 10);
-    const m = parseInt(currentTs.slice(4, 6), 10) - 1;
-    const d = parseInt(currentTs.slice(6, 8), 10);
-    const h = parseInt(currentTs.slice(8, 10), 10);
-    const min = parseInt(currentTs.slice(10, 12), 10);
-    const baseDate = new Date(Date.UTC(y, m, d, h, min, 0, 0));
-
-    // Build ordered neighbour timestamps that aren't yet cached and are published
     const timestamps: string[] = [];
-    for (let i = 1; i <= windowSize; i++) {
-      for (const offset of [i, -i]) {
-        const chunkDate = new Date(baseDate);
-        chunkDate.setUTCMinutes(chunkDate.getUTCMinutes() + offset * 15);
-        const ts = chunkDate.toISOString().replace(/[-:T]/g, '').slice(0, 14);
-        if (!chunkCache.has(ts) && ts <= latestPublishedTs) {
-          timestamps.push(ts);
-        }
+    for (let i = 1; i <= w; i++) {
+      for (const off of [i, -i]) {
+        const cd = new Date(base);
+        cd.setUTCMinutes(cd.getUTCMinutes() + off * 15);
+        const ts = cd.toISOString().replace(/[-:T]/g, '').slice(0,14);
+        if (!chunkCache.has(ts) && ts <= latestPublishedTs) timestamps.push(ts);
       }
     }
 
-    // If we're at the latest published chunk (system time), fetch backward
-    // neighbours sequentially so -1, -2, -3 are loaded in that exact order.
-    if (currentTs === latestPublishedTs) {
-      let index = 0;
-      function fetchNext() {
-        if (index >= timestamps.length) return;
-        const ts = timestamps[index];
-        index++;
-        fetchQueue.enqueue(ts, 'low', async (signal) => {
-          try {
-            const data = await fetchAndCacheChunk(ts, signal);
-            chunkCache.set(ts, data);
-          } catch (err) {
-            if ((err as any).name === 'AbortError') return;
-          } finally {
-            fetchNext();
-          }
+    if (cur === latestPublishedTs) {
+      let idx = 0;
+      function next() {
+        if (idx >= timestamps.length) return;
+        const t = timestamps[idx++];
+        fetchQueue.enqueue(t, 'low', async (signal) => {
+          try { chunkCache.set(t, await fetchAndCacheChunk(t, signal)); }
+          catch (err) { if ((err as any).name === 'AbortError') return; }
+          finally { next(); }
         });
       }
-      fetchNext();
+      next();
     } else {
-      // Historical mode – fetch all at once, concurrency handles order
-      timestamps.forEach((ts) => {
+      timestamps.forEach(ts => {
         fetchQueue.enqueue(ts, 'low', async (signal) => {
-          try {
-            const data = await fetchAndCacheChunk(ts, signal);
-            chunkCache.set(ts, data);
-          } catch (err) {
-            if ((err as any).name === 'AbortError') return;
-          }
+          try { chunkCache.set(ts, await fetchAndCacheChunk(ts, signal)); }
+          catch (err) { if ((err as any).name === 'AbortError') return; }
         });
       });
     }
@@ -226,34 +173,22 @@ async function main() {
   // ---------- Clock tick ----------
   let lastDisplayedTs = '';
   viewer.clock.onTick.addEventListener((clock) => {
-    if (!initialLoadComplete) return;   // block until initial load finishes
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
-    // If the clock is ahead of published data, display the latest published chunk
+    // When the clock is ahead of published data, re‑display the latest published chunk.
+    // (It will already be cached from startup.)
     if (ts > latestPublishedTs) {
-      const fallbackTs = latestPublishedTs;
-      if (chunkCache.has(fallbackTs)) {
-        updateDisplay(fallbackTs, chunkCache.get(fallbackTs)!);
-        lastDisplayedTs = fallbackTs;
+      const fb = latestPublishedTs;
+      if (chunkCache.has(fb)) {
+        updateDisplay(fb, chunkCache.get(fb)!);
+        lastDisplayedTs = fb;
         schedulePreFetch();
-      } else if (!fetchQueue.isActive(fallbackTs)) {
-        // Only enqueue if not already being fetched
-        fetchQueue.enqueue(fallbackTs, 'high', async (signal) => {
-          const data = await fetchAndCacheChunk(fallbackTs, signal);
-          chunkCache.set(fallbackTs, data);
-          // Force display once it loads, if the clock still hasn't caught up
-          if (chunkTimestamp(viewer.clock.currentTime) > fallbackTs) {
-            updateDisplay(fallbackTs, data);
-            lastDisplayedTs = fallbackTs;
-            schedulePreFetch();
-          }
-        });
       }
       return;
     }
 
-    // Already cached → show immediately
+    // Normal path – chunk exists, show it (or fetch if not cached)
     if (chunkCache.has(ts)) {
       updateDisplay(ts, chunkCache.get(ts)!);
       lastDisplayedTs = ts;
@@ -261,35 +196,26 @@ async function main() {
       return;
     }
 
-    // Otherwise enqueue with high priority
     fetchQueue.enqueue(ts, 'high', async (signal) => {
-      try {
-        const data = await fetchAndCacheChunk(ts, signal);
-        chunkCache.set(ts, data);
-      } catch (err) {
-        if ((err as any).name === 'AbortError') return;
-        console.error(`Failed to load chunk ${ts}:`, err);
-      }
+      try { chunkCache.set(ts, await fetchAndCacheChunk(ts, signal)); }
+      catch (err) { if ((err as any).name === 'AbortError') return; }
     });
   });
 
-  // ---------- Real‑time polling ----------
+  // ---------- Polling ----------
   async function pollLatest() {
     try {
       const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
-      const res = await fetch(
-        proxy + encodeURIComponent('http://data.gdeltproject.org/gdeltv2/lastupdate.txt'),
-      );
+      const res = await fetch(proxy + encodeURIComponent('http://data.gdeltproject.org/gdeltv2/lastupdate.txt'));
       if (!res.ok) return;
       const text = await res.text();
-      const latestFileUrl = text.trim().split('\n')[0].split(' ')[2];
-      const match = latestFileUrl.match(/(\d{14})\.export\.CSV\.zip/);
+      const fileUrl = text.trim().split('\n')[0].split(' ')[2];
+      const match = fileUrl.match(/(\d{14})\.export\.CSV\.zip/);
       if (!match) return;
       const newTs = match[1];
       if (newTs !== latestPublishedTs) {
         latestPublishedTs = newTs;
         fetchQueue.setLatestChunk(newTs);
-        // Pre‑fetch the newest chunk so it's ready when the clock reaches it
         if (!chunkCache.has(newTs)) {
           fetchQueue.enqueue(newTs, 'high', async (signal) => {
             const data = await fetchAndCacheChunk(newTs, signal);
@@ -297,32 +223,23 @@ async function main() {
           });
         }
       }
-    } catch {
-      // polling failure is silent
-    }
+    } catch {}
   }
 
-  // ---------- Initial load ----------
-  // Run a single poll to get the true latest published timestamp
+  // ---------- Initial load (awaited, so globe is never blank) ----------
   await pollLatest();
-
-  // Explicitly load and display the latest published chunk so the globe
-  // is never blank on startup, even during the 5‑minute gap.
   const initialTs = latestPublishedTs;
-  fetchQueue.enqueue(initialTs, 'high', async (signal) => {
-    const data = await fetchAndCacheChunk(initialTs, signal);
+  try {
+    const data = await fetchAndCacheChunk(initialTs);
     chunkCache.set(initialTs, data);
     updateDisplay(initialTs, data);
     lastDisplayedTs = initialTs;
     schedulePreFetch();
-  });
+  } catch (err) {
+    console.error('Initial chunk load failed:', err);
+  }
 
-  initialLoadComplete = true;   // now the clock tick is allowed to run
-
-  // Kick off the regular polling timer
   setInterval(pollLatest, 60_000);
-
-  // ---------- InfoBox ----------
   infoBox = new InfoBox(viewer, new Map(), new Map());
 }
 
