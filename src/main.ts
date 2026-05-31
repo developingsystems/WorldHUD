@@ -314,6 +314,8 @@ async function main() {
     const data = await fetchAndCacheChunk(initialTs, signal);
     chunkCache.set(initialTs, data);
   });
+
+  initialLoadComplete = true;   // ← now the clock tick is allowed to run
 }
 
 main();
