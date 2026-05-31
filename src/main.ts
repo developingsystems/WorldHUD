@@ -204,23 +204,8 @@ async function main() {
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
-    // If the clock points to a chunk that isn't published yet,
-    // display the latest published chunk instead (already cached).
-    if (ts > latestPublishedTs) {
-      const fallbackTs = latestPublishedTs;
-      if (chunkCache.has(fallbackTs)) {
-        updateDisplay(fallbackTs, chunkCache.get(fallbackTs)!);
-        lastDisplayedTs = fallbackTs;
-      } else {
-        // Should never happen – the fallback was loaded at startup
-        fetchQueue.enqueue(fallbackTs, 'high', async (signal) => {
-          const data = await fetchAndCacheChunk(fallbackTs, signal);
-          chunkCache.set(fallbackTs, data);
-        });
-        lastDisplayedTs = fallbackTs;
-      }
-      return;
-    }
+    // If the clock is ahead of published data, leave the current display alone
+    if (ts > latestPublishedTs) return;
 
     // Already cached → show immediately
     if (chunkCache.has(ts)) {
@@ -308,6 +293,10 @@ async function main() {
   fetchQueue.enqueue(initialTs, 'high', async (signal) => {
     const data = await fetchAndCacheChunk(initialTs, signal);
     chunkCache.set(initialTs, data);
+    // Force‑display the initial chunk, even if the clock is ahead
+    updateDisplay(initialTs, data);
+    lastDisplayedTs = initialTs;
+    schedulePreFetch();
   });
 
   initialLoadComplete = true;   // ← now the clock tick is allowed to run
