@@ -104,7 +104,6 @@ export class FetchQueue {
     }
   }
 
-
   /** Set all queued/active tasks to low priority, except the given timestamp. */
   downgradeAllExcept(keepTs: ChunkTimestamp) {
     for (const task of this.active.values()) {
@@ -112,14 +111,29 @@ export class FetchQueue {
         task.priority = 'low';
       }
     }
-    // Re‑sort waiting so high‑priority items come first
     this.waiting.sort((a, b) => {
       if (a.priority === 'high' && b.priority === 'low') return -1;
       if (a.priority === 'low' && b.priority === 'high') return 1;
       return 0;
     });
   }
-  
+
+  /** Abort all active and queued tasks that do not match the given timestamp. */
+  abortAllExcept(keepTs: ChunkTimestamp) {
+    for (const [ts, task] of this.active) {
+      if (ts !== keepTs) {
+        task.controller.abort();
+        this.active.delete(ts);
+        if (task.status === 'active') {
+          this.runningCount--;
+        }
+      }
+    }
+    // Remove aborted tasks from waiting array
+    this.waiting = this.waiting.filter(t => t.ts === keepTs);
+    this.processQueue();
+  }
+
   private processQueue() {
     this.waiting.sort((a, b) => {
       if (a.priority === 'high' && b.priority === 'low') return -1;
