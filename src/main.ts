@@ -203,6 +203,24 @@ async function main() {
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
+    // If the clock points to a chunk that isn't published yet,
+    // display the latest published chunk instead (already cached).
+    if (ts > latestPublishedTs) {
+      const fallbackTs = latestPublishedTs;
+      if (chunkCache.has(fallbackTs)) {
+        updateDisplay(fallbackTs, chunkCache.get(fallbackTs)!);
+        lastDisplayedTs = fallbackTs;
+      } else {
+        // Should never happen – the fallback was loaded at startup
+        fetchQueue.enqueue(fallbackTs, 'high', async (signal) => {
+          const data = await fetchAndCacheChunk(fallbackTs, signal);
+          chunkCache.set(fallbackTs, data);
+        });
+        lastDisplayedTs = fallbackTs;
+      }
+      return;
+    }
+
     // Abort everything that's not the current chunk
     fetchQueue.abortAllExcept(ts);
 
@@ -224,7 +242,6 @@ async function main() {
         console.error(`Failed to load chunk ${ts}:`, err);
       }
     });
-    lastDisplayedTs = ts;
   });
 
   // ---------- Real‑time polling ----------
@@ -264,17 +281,36 @@ async function main() {
   infoBox = new InfoBox(viewer, new Map(), new Map());
 
   // ---------- Initial chunk load ----------
+  // Read lastupdate.txt synchronously to find the truly latest published chunk
+  let initialTs = '';
   try {
-    const ts = chunkTimestamp(viewer.clock.currentTime);
-    latestPublishedTs = ts; // fallback until first poll completes
-    fetchQueue.setLatestChunk(ts);
-    fetchQueue.enqueue(ts, 'high', async (signal) => {
-      const data = await fetchAndCacheChunk(ts, signal);
-      chunkCache.set(ts, data);
-    });
-  } catch (err) {
-    console.error('Initial GDELT fetch failed:', err);
+    const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
+    const res = await fetch(
+      proxy + encodeURIComponent('http://data.gdeltproject.org/gdeltv2/lastupdate.txt'),
+    );
+    if (res.ok) {
+      const text = await res.text();
+      const latestFileUrl = text.trim().split('\n')[0].split(' ')[2];
+      const match = latestFileUrl.match(/(\d{14})\.export\.CSV\.zip/);
+      if (match) initialTs = match[1];
+    }
+  } catch { /* silent */ }
+
+  // Fallback: if the fetch failed, use the chunk 15 minutes before the clock
+  if (!initialTs) {
+    const d = JulianDate.toDate(viewer.clock.currentTime);
+    d.setMinutes(d.getMinutes() - 15);
+    initialTs = chunkTimestamp(JulianDate.fromDate(d));
   }
+
+  latestPublishedTs = initialTs;
+  fetchQueue.setLatestChunk(initialTs);
+
+  // Load and display the most recent published chunk immediately
+  fetchQueue.enqueue(initialTs, 'high', async (signal) => {
+    const data = await fetchAndCacheChunk(initialTs, signal);
+    chunkCache.set(initialTs, data);
+  });
 }
 
 main();
