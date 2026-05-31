@@ -104,6 +104,22 @@ export class FetchQueue {
     }
   }
 
+
+  /** Set all queued/active tasks to low priority, except the given timestamp. */
+  downgradeAllExcept(keepTs: ChunkTimestamp) {
+    for (const task of this.active.values()) {
+      if (task.ts !== keepTs && task.priority === 'high') {
+        task.priority = 'low';
+      }
+    }
+    // Re‑sort waiting so high‑priority items come first
+    this.waiting.sort((a, b) => {
+      if (a.priority === 'high' && b.priority === 'low') return -1;
+      if (a.priority === 'low' && b.priority === 'high') return 1;
+      return 0;
+    });
+  }
+  
   private processQueue() {
     this.waiting.sort((a, b) => {
       if (a.priority === 'high' && b.priority === 'low') return -1;
