@@ -234,26 +234,26 @@ async function main() {
   } catch {}
 
   if (!initialTs) {
-    // Fallback – use the clock's current chunk minus 15 minutes
     const d = JulianDate.toDate(viewer.clock.currentTime);
     d.setMinutes(d.getMinutes() - 15);
     initialTs = chunkTimestamp(JulianDate.fromDate(d));
   }
 
-  // Fetch and display the initial chunk, then enable the clock tick guardrail.
+  // Fetch and display the initial chunk.
   try {
     const data = await fetchAndCacheChunk(initialTs);
     chunkCache.set(initialTs, data);
+
+    // Set the guardrail BEFORE pre‑fetch so neighbours are eligible
+    latestPublishedTs = initialTs;
+    fetchQueue.setLatestChunk(initialTs);
+
     updateDisplay(initialTs, data);
     lastDisplayedTs = initialTs;
-    schedulePreFetch();
+    schedulePreFetch();                     // now works correctly
   } catch (err) {
     console.error('Initial chunk load failed:', err);
   }
-
-  // Now that the globe is populated, allow the clock tick to see the real latest timestamp.
-  latestPublishedTs = initialTs;
-  fetchQueue.setLatestChunk(initialTs);
 
   setInterval(pollLatest, 60_000);
   infoBox = new InfoBox(viewer, new Map(), new Map());
