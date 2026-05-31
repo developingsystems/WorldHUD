@@ -2,31 +2,19 @@ import type { FeatureCollection } from 'geojson';
 
 const PROXY = import.meta.env.VITE_CORS_PROXY_URL || '';
 
-export async function fetchLatestChunk(
-  ts?: string,
+/**
+ * Fetch and process a single 15‑minute GDELT chunk by its timestamp.
+ * The timestamp must already be a clean quarter‑hour boundary (ends in `00`).
+ */
+export async function fetchChunk(
+  ts: string,
   signal?: AbortSignal,
 ): Promise<{ geojson: FeatureCollection; timestamp: string }> {
   if (!PROXY) throw new Error('Missing VITE_CORS_PROXY_URL in .env');
 
-  // ---------- 1. Determine chunk timestamp ----------
-  let timestamp: string;
+  const timestamp = ts.slice(0, 12) + '00';   // belt‑and‑suspenders sanitisation
 
-  if (ts) {
-    // Historical mode – use the exact timestamp provided by the clock
-    timestamp = ts;
-  } else {
-    // Real‑time mode – get the latest timestamp from lastupdate.txt
-    const lastUpdateUrl = 'http://data.gdeltproject.org/gdeltv2/lastupdate.txt';
-    const lastUpdateRes = await fetch(PROXY + encodeURIComponent(lastUpdateUrl), { signal });
-    if (!lastUpdateRes.ok) throw new Error(`lastupdate.txt failed: ${lastUpdateRes.status}`);
-    const text = await lastUpdateRes.text();
-    const latestFileUrl = text.trim().split('\n')[0].split(' ')[2];
-    const match = latestFileUrl.match(/(\d{14})\.export\.CSV\.zip/);
-    if (!match) throw new Error('Could not extract timestamp from lastupdate.txt');
-    timestamp = match[1];
-  }
-
-  // ---------- 2. Build URLs ----------
+  // ---------- 1. Build URLs ----------
   const baseUrl = `http://data.gdeltproject.org/gdeltv2/${timestamp}`;
   const files = {
     events: `${baseUrl}.export.CSV.zip`,
@@ -34,14 +22,13 @@ export async function fetchLatestChunk(
     gkg: `${baseUrl}.gkg.csv.zip`,
   };
 
-  // ---------- 3. Fetch helper with timeout + retry + abort ----------
+  // ---------- 2. Fetch helper with timeout + retry + abort ----------
   async function fetchBlob(url: string): Promise<Blob> {
     const maxRetries = 5;
     const baseTimeout = 15000; // 15 seconds per attempt
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const timeout = baseTimeout * attempt;
       const localSignal = AbortSignal.timeout(timeout);
-      // Combine the external abort signal with our own timeout
       const combinedSignal = signal
         ? AbortSignal.any([signal, localSignal])
         : localSignal;
@@ -61,14 +48,14 @@ export async function fetchLatestChunk(
     throw new Error(`fetchBlob: all retries exhausted for ${url}`);
   }
 
-  // ---------- 4. Fetch all three in parallel ----------
+  // ---------- 3. Fetch all three in parallel ----------
   const [eventsBlob, mentionsBlob, gkgBlob] = await Promise.all([
     fetchBlob(PROXY + encodeURIComponent(files.events)),
     fetchBlob(PROXY + encodeURIComponent(files.mentions)),
     fetchBlob(PROXY + encodeURIComponent(files.gkg)),
   ]);
 
-  // ---------- 5. Unzip helper ----------
+  // ---------- 4. Unzip helper ----------
   async function unzipCsv(blob: Blob): Promise<string> {
     const { unzip } = await import('fflate');
     const buf = new Uint8Array(await blob.arrayBuffer());
@@ -79,14 +66,14 @@ export async function fetchLatestChunk(
     return new TextDecoder().decode(files[filename]);
   }
 
-  // ---------- 6. Unzip all three in parallel ----------
+  // ---------- 5. Unzip all three in parallel ----------
   const [eventsCsv, mentionsCsv, gkgCsv] = await Promise.all([
     unzipCsv(eventsBlob),
     unzipCsv(mentionsBlob),
     unzipCsv(gkgBlob),
   ]);
 
-  // ---------- 7. Spawn workers ----------
+  // ---------- 6. Spawn workers ----------
   const eventsWorker   = new Worker(new URL('../workers/events-worker.ts',   import.meta.url), { type: 'module' });
   const mentionsWorker = new Worker(new URL('../workers/mentions-worker.ts', import.meta.url), { type: 'module' });
   const gkgWorker      = new Worker(new URL('../workers/gkg-worker.ts',      import.meta.url), { type: 'module' });
@@ -111,7 +98,7 @@ export async function fetchLatestChunk(
 
   const [eventsGeojson, mentionsArray, gkgRecords] = await Promise.all([eventsPromise, mentionsPromise, gkgPromise]);
 
-  // Format timestamp as DD MMM YYYY HHMM UTC
+  // Format timestamp for console
   const y = timestamp.slice(0, 4);
   const m = timestamp.slice(4, 6);
   const d = timestamp.slice(6, 8);
@@ -124,7 +111,7 @@ export async function fetchLatestChunk(
   console.log(`[${natoTs}] ✅ Loaded ${mentionsArray.length} mentions`);
   console.log(`[${natoTs}] ✅ Loaded ${gkgRecords.length} GKG records`);
 
-  // ---------- 8. Build lookup maps ----------
+  // ---------- 7. Build lookup maps ----------
   const mentionsMap = new Map<string, string[]>();
   for (const { globalEventId, mentionId } of mentionsArray) {
     if (!mentionsMap.has(globalEventId)) mentionsMap.set(globalEventId, []);
@@ -136,7 +123,7 @@ export async function fetchLatestChunk(
     gkgMap.set(mentionId, { pageTitle, counts });
   }
 
-  // ---------- 9. Enrich events with headlines and counts ----------
+  // ---------- 8. Enrich events with headlines and counts ----------
   for (const feature of (eventsGeojson as FeatureCollection).features) {
     const globalEventId = feature.properties?.globalEventId as string;
     const mentionIds = mentionsMap.get(globalEventId) || [];
