@@ -37,8 +37,7 @@ export async function fetchChunk(
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return await res.blob();
       } catch (err: any) {
-        if (attempt < maxRetries &&
-            (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+        if (attempt < maxRetries && err.name === 'TimeoutError') {
           console.warn(`Fetch attempt ${attempt} for ${url} timed out, retrying...`);
           continue;
         }
