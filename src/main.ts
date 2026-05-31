@@ -175,16 +175,42 @@ async function main() {
     const min = parseInt(currentTs.slice(10, 12), 10);
     const baseDate = new Date(Date.UTC(y, m, d, h, min, 0, 0));
 
-    const offsets: number[] = [];
+    // Build ordered neighbour timestamps that aren't yet cached and are published
+    const timestamps: string[] = [];
     for (let i = 1; i <= windowSize; i++) {
-      offsets.push(i, -i);
+      for (const offset of [i, -i]) {
+        const chunkDate = new Date(baseDate);
+        chunkDate.setUTCMinutes(chunkDate.getUTCMinutes() + offset * 15);
+        const ts = chunkDate.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+        if (!chunkCache.has(ts) && ts <= latestPublishedTs) {
+          timestamps.push(ts);
+        }
+      }
     }
 
-    offsets.forEach((offset) => {
-      const chunkDate = new Date(baseDate);
-      chunkDate.setUTCMinutes(chunkDate.getUTCMinutes() + offset * 15);
-      const ts = chunkDate.toISOString().replace(/[-:T]/g, '').slice(0, 14);
-      if (!chunkCache.has(ts) && ts <= latestPublishedTs) {
+    // If we're at the latest published chunk (system time), fetch backward
+    // neighbours sequentially so -1, -2, -3 are loaded in that exact order.
+    if (currentTs === latestPublishedTs) {
+      let index = 0;
+      function fetchNext() {
+        if (index >= timestamps.length) return;
+        const ts = timestamps[index];
+        index++;
+        fetchQueue.enqueue(ts, 'low', async (signal) => {
+          try {
+            const data = await fetchAndCacheChunk(ts, signal);
+            chunkCache.set(ts, data);
+          } catch (err) {
+            if ((err as any).name === 'AbortError') return;
+          } finally {
+            fetchNext();
+          }
+        });
+      }
+      fetchNext();
+    } else {
+      // Historical mode – fetch all at once, concurrency handles order
+      timestamps.forEach((ts) => {
         fetchQueue.enqueue(ts, 'low', async (signal) => {
           try {
             const data = await fetchAndCacheChunk(ts, signal);
@@ -193,8 +219,8 @@ async function main() {
             if ((err as any).name === 'AbortError') return;
           }
         });
-      }
-    });
+      });
+    }
   }
 
   // ---------- Clock tick ----------
@@ -204,8 +230,27 @@ async function main() {
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
-    // If the clock is ahead of published data, leave the current display alone
-    if (ts > latestPublishedTs) return;
+    // If the clock is ahead of published data, display the latest published chunk
+    if (ts > latestPublishedTs) {
+      const fallbackTs = latestPublishedTs;
+      if (chunkCache.has(fallbackTs)) {
+        updateDisplay(fallbackTs, chunkCache.get(fallbackTs)!);
+        lastDisplayedTs = fallbackTs;
+        schedulePreFetch();
+      } else {
+        fetchQueue.enqueue(fallbackTs, 'high', async (signal) => {
+          const data = await fetchAndCacheChunk(fallbackTs, signal);
+          chunkCache.set(fallbackTs, data);
+          // Force display once it loads, if the clock still hasn't caught up
+          if (chunkTimestamp(viewer.clock.currentTime) > fallbackTs) {
+            updateDisplay(fallbackTs, data);
+            lastDisplayedTs = fallbackTs;
+            schedulePreFetch();
+          }
+        });
+      }
+      return;
+    }
 
     // Already cached → show immediately
     if (chunkCache.has(ts)) {
@@ -256,50 +301,16 @@ async function main() {
     }
   }
 
-  // Kick off polling immediately, then every 60 s
-  pollLatest();
+  // ---------- Initial chunk load ----------
+  // Run a single poll synchronously so latestPublishedTs is correct before the clock ticks
+  await pollLatest();
+  initialLoadComplete = true;   // now the clock tick is allowed to run
+
+  // Kick off polling timer (first poll already done)
   setInterval(pollLatest, 60_000);
 
   // ---------- InfoBox ----------
   infoBox = new InfoBox(viewer, new Map(), new Map());
-
-  // ---------- Initial chunk load ----------
-  // Read lastupdate.txt synchronously to find the truly latest published chunk
-  let initialTs = '';
-  try {
-    const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
-    const res = await fetch(
-      proxy + encodeURIComponent('http://data.gdeltproject.org/gdeltv2/lastupdate.txt'),
-    );
-    if (res.ok) {
-      const text = await res.text();
-      const latestFileUrl = text.trim().split('\n')[0].split(' ')[2];
-      const match = latestFileUrl.match(/(\d{14})\.export\.CSV\.zip/);
-      if (match) initialTs = match[1];
-    }
-  } catch { /* silent */ }
-
-  // Fallback: if the fetch failed, use the chunk 15 minutes before the clock
-  if (!initialTs) {
-    const d = JulianDate.toDate(viewer.clock.currentTime);
-    d.setMinutes(d.getMinutes() - 15);
-    initialTs = chunkTimestamp(JulianDate.fromDate(d));
-  }
-
-  latestPublishedTs = initialTs;
-  fetchQueue.setLatestChunk(initialTs);
-
-  // Load and display the most recent published chunk immediately
-  fetchQueue.enqueue(initialTs, 'high', async (signal) => {
-    const data = await fetchAndCacheChunk(initialTs, signal);
-    chunkCache.set(initialTs, data);
-    // Force‑display the initial chunk, even if the clock is ahead
-    updateDisplay(initialTs, data);
-    lastDisplayedTs = initialTs;
-    schedulePreFetch();
-  });
-
-  initialLoadComplete = true;   // ← now the clock tick is allowed to run
 }
 
 main();
