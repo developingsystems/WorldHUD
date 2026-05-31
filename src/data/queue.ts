@@ -9,7 +9,7 @@ interface FetchTask {
 }
 
 export class FetchQueue {
-  private maxConcurrent = 6;
+  private maxConcurrent = 2;
   private maxPending = 10;
   private active = new Map<ChunkTimestamp, FetchTask>();
   private waiting: FetchTask[] = [];
