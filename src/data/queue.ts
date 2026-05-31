@@ -1,4 +1,4 @@
-type ChunkTimestamp = string;type ChunkTimestamp = string;type ChunkTimestamp = string;type ChunkTimestamp = string;
+type ChunkTimestamp = string;
 
 interface FetchTask {
   ts: ChunkTimestamp;
