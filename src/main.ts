@@ -176,17 +176,7 @@ async function main() {
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
-    // When the clock is ahead of published data, re‑display the latest published chunk.
-    // (It will already be cached from startup.)
-    if (ts > latestPublishedTs) {
-      const fb = latestPublishedTs;
-      if (chunkCache.has(fb)) {
-        updateDisplay(fb, chunkCache.get(fb)!);
-        lastDisplayedTs = fb;
-        schedulePreFetch();
-      }
-      return;
-    }
+    if (ts > latestPublishedTs) return;
 
     // Normal path – chunk exists, show it (or fetch if not cached)
     if (chunkCache.has(ts)) {
