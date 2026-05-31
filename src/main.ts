@@ -224,9 +224,6 @@ async function main() {
       return;
     }
 
-    // Abort everything that's not the current chunk
-    fetchQueue.abortAllExcept(ts);
-
     // Already cached → show immediately
     if (chunkCache.has(ts)) {
       updateDisplay(ts, chunkCache.get(ts)!);
