@@ -114,6 +114,11 @@ export class FetchQueue {
     }
   }
 
+  /** Check if a chunk is already being fetched or is waiting. */
+  isActive(ts: ChunkTimestamp): boolean {
+    return this.active.has(ts);
+  }
+  
   downgradeAllExcept(keepTs: ChunkTimestamp) {
     for (const task of this.active.values()) {
       if (task.ts !== keepTs && task.priority === 'high') {
