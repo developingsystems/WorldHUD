@@ -182,6 +182,9 @@ async function main() {
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
+    // Only the current chunk deserves high priority
+    fetchQueue.downgradeAllExcept(ts);
+
     // Already cached → show immediately
     if (chunkCache.has(ts)) {
       updateDisplay(ts, chunkCache.get(ts)!);
