@@ -181,8 +181,6 @@ async function main() {
   viewer.clock.onTick.addEventListener((clock) => {
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
-
-    // Only the current chunk deserves high priority
     fetchQueue.downgradeAllExcept(ts);
 
     // Already cached → show immediately
