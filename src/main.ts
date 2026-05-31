@@ -202,6 +202,7 @@ async function main() {
   // ---------- Clock tick ----------
   let lastDisplayedTs = '';
   viewer.clock.onTick.addEventListener((clock) => {
+    if (!initialLoadComplete) return;   // ← block until initial load finishes
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
