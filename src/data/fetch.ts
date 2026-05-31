@@ -111,9 +111,18 @@ export async function fetchLatestChunk(
 
   const [eventsGeojson, mentionsArray, gkgRecords] = await Promise.all([eventsPromise, mentionsPromise, gkgPromise]);
 
-  console.log(`[${timestamp}] ✅ Loaded ${eventsGeojson.features.length} events`);
-  console.log(`[${timestamp}] ✅ Loaded ${mentionsArray.length} mentions`);
-  console.log(`[${timestamp}] ✅ Loaded ${gkgRecords.length} GKG records`);
+  // Format timestamp as DD MMM YYYY HHMM UTC
+  const y = timestamp.slice(0, 4);
+  const m = timestamp.slice(4, 6);
+  const d = timestamp.slice(6, 8);
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const monthAbbr = months[parseInt(m, 10) - 1] || m;
+  const t = timestamp.slice(8, 12);
+  const natoTs = `${d} ${monthAbbr} ${y} ${t} UTC`;
+
+  console.log(`[${natoTs}] ✅ Loaded ${eventsGeojson.features.length} events`);
+  console.log(`[${natoTs}] ✅ Loaded ${mentionsArray.length} mentions`);
+  console.log(`[${natoTs}] ✅ Loaded ${gkgRecords.length} GKG records`);
 
   // ---------- 8. Build lookup maps ----------
   const mentionsMap = new Map<string, string[]>();
