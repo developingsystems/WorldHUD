@@ -1,4 +1,4 @@
-type ChunkTimestamp = string;type ChunkTimestamp = string;
+type ChunkTimestamp = string;type ChunkTimestamp = string;type ChunkTimestamp = string;
 
 interface FetchTask {
   ts: ChunkTimestamp;
@@ -36,13 +36,11 @@ export class FetchQueue {
       const existing = this.active.get(ts)!;
       if (existing.priority === 'low' && priority === 'high') {
         existing.priority = 'high';
-        // Move to the front of the waiting queue so it runs immediately
         const idx = this.waiting.indexOf(existing);
         if (idx !== -1) {
           this.waiting.splice(idx, 1);
           this.waiting.unshift(existing);
         }
-        // Re‑sort so high priority stays ahead of low
         this.waiting.sort((a, b) => {
           if (a.priority === 'high' && b.priority === 'low') return -1;
           if (a.priority === 'low' && b.priority === 'high') return 1;
@@ -61,11 +59,9 @@ export class FetchQueue {
       status: 'queued',
     };
 
-    // Evict if waiting queue is full
     if (this.waiting.length >= this.maxPending) {
       let evicted = false;
 
-      // 1) Try to drop a low‑priority queued task (prefer oldest, which is at the end)
       for (let i = this.waiting.length - 1; i >= 0; i--) {
         if (this.waiting[i].priority === 'low') {
           this.waiting[i].controller.abort();
@@ -75,14 +71,12 @@ export class FetchQueue {
         }
       }
 
-      // 2) No low‑priority – drop the oldest queued request (now at the end)
       if (!evicted && this.waiting.length > 0) {
-        const oldest = this.waiting.pop()!;   // end of array = oldest
+        const oldest = this.waiting.pop()!;
         oldest.controller.abort();
         evicted = true;
       }
 
-      // 3) Last resort – abort the oldest active low‑priority task
       if (!evicted) {
         for (const [key, t] of this.active) {
           if (t.priority === 'low' && t.status === 'active') {
@@ -95,7 +89,6 @@ export class FetchQueue {
       }
     }
 
-    // Insert at the front so the most recently requested chunk is fetched first
     this.waiting.unshift(task);
     this.active.set(ts, task);
     this.processQueue();
@@ -119,7 +112,7 @@ export class FetchQueue {
     });
 
     while (this.runningCount < this.maxConcurrent && this.waiting.length > 0) {
-      const next = this.waiting.shift()!;   // front of array = most recent
+      const next = this.waiting.shift()!;
       next.status = 'active';
       this.runningCount++;
 
