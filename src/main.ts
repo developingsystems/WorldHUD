@@ -168,6 +168,7 @@ async function main() {
     offsets.forEach((offset) => {
       const d = JulianDate.toDate(viewer.clock.currentTime);
       d.setMinutes(d.getMinutes() + offset * 15);
+      d.setSeconds(0, 0);                              // force seconds to 00
       const ts = d.toISOString().replace(/[-:T]/g, '').slice(0, 14);
       if (!chunkCache.has(ts) && ts <= latestPublishedTs) {
         fetchQueue.enqueue(ts, 'low', async (signal) => {
