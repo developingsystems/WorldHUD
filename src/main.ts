@@ -7,7 +7,6 @@ import { fetchChunk } from './data/fetch.js';
 import { FetchQueue } from './data/queue.js';
 
 // ---------- Utility: chunk timestamp from a JulianDate ----------
-/** Return the end‑of‑window GDELT chunk timestamp for a given clock time. */
 function chunkTimestamp(clockTime: JulianDate): string {
   const d = JulianDate.toDate(clockTime);
   d.setSeconds(0, 0);
@@ -204,8 +203,8 @@ async function main() {
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
 
-    // Only the current chunk deserves high priority
-    fetchQueue.downgradeAllExcept(ts);
+    // Abort everything that's not the current chunk
+    fetchQueue.abortAllExcept(ts);
 
     // Already cached → show immediately
     if (chunkCache.has(ts)) {
