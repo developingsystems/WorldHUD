@@ -6,10 +6,17 @@ import { InfoBox } from './ui/infobox.js';
 import { fetchLatestChunk } from './data/fetch.js';
 import { FetchQueue } from './data/queue.js';
 
-// ---------- Utility: chunk timestamp from a JulianDate ----------
+/** Return the end‑of‑window GDELT chunk timestamp for a given clock time. */
 function chunkTimestamp(clockTime: JulianDate): string {
   const d = JulianDate.toDate(clockTime);
-  d.setMinutes(Math.floor(d.getMinutes() / 15) * 15, 0, 0);
+  // GDELT chunks are 15‑minute blocks named by their *end* time.
+  // e.g. 13:05 → chunk 1315 (covers 13:00‑13:14).
+  d.setSeconds(0, 0);
+  d.setMinutes(Math.ceil((d.getMinutes() + 1) / 15) * 15);
+  if (d.getMinutes() === 60) {
+    d.setMinutes(0);
+    d.setHours(d.getHours() + 1);
+  }
   return d.toISOString().replace(/[-:T]/g, '').slice(0, 14);
 }
 
