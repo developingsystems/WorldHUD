@@ -160,13 +160,21 @@ async function main() {
     if (!animating || multiplier <= 1) {
       windowSize = 3;
     } else if (multiplier <= 60) {
-      windowSize = 3;          // current ±3
+      windowSize = 3;
     } else if (multiplier <= 150) {
-      windowSize = 2;          // current ±2
+      windowSize = 2;
     } else if (multiplier <= 300) {
-      windowSize = 1;          // current ±1
+      windowSize = 1;
     }
-    // > 300× → only fetch current (windowSize = 0)
+
+    // Get the current chunk timestamp and convert back to a Date
+    const currentTs = chunkTimestamp(viewer.clock.currentTime);
+    const y = parseInt(currentTs.slice(0, 4), 10);
+    const m = parseInt(currentTs.slice(4, 6), 10) - 1;
+    const d = parseInt(currentTs.slice(6, 8), 10);
+    const h = parseInt(currentTs.slice(8, 10), 10);
+    const min = parseInt(currentTs.slice(10, 12), 10);
+    const baseDate = new Date(Date.UTC(y, m, d, h, min, 0, 0));
 
     const offsets: number[] = [];
     for (let i = 1; i <= windowSize; i++) {
@@ -174,10 +182,9 @@ async function main() {
     }
 
     offsets.forEach((offset) => {
-      const d = JulianDate.toDate(viewer.clock.currentTime);
-      d.setMinutes(d.getMinutes() + offset * 15);
-      d.setSeconds(0, 0);                              // force seconds to 00
-      const ts = d.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+      const chunkDate = new Date(baseDate);
+      chunkDate.setUTCMinutes(chunkDate.getUTCMinutes() + offset * 15);
+      const ts = chunkDate.toISOString().replace(/[-:T]/g, '').slice(0, 14);
       if (!chunkCache.has(ts) && ts <= latestPublishedTs) {
         fetchQueue.enqueue(ts, 'low', async (signal) => {
           try {
@@ -185,7 +192,6 @@ async function main() {
             chunkCache.set(ts, data);
           } catch (err) {
             if ((err as any).name === 'AbortError') return;
-            // ignore pre‑fetch failures
           }
         });
       }
