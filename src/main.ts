@@ -132,7 +132,7 @@ async function main() {
     else if (multiplier <= 150) w = 2;
     else if (multiplier <= 300) w = 1;
 
-    const cur = chunkTimestamp(viewer.clock.currentTime);
+    const cur = lastDisplayedTs || chunkTimestamp(viewer.clock.currentTime);
     const y = parseInt(cur.slice(0,4),10), mo = parseInt(cur.slice(4,6),10)-1,
           d = parseInt(cur.slice(6,8),10), h = parseInt(cur.slice(8,10),10),
           mi = parseInt(cur.slice(10,12),10);
@@ -219,9 +219,28 @@ async function main() {
     } catch {}
   }
 
-  // ---------- Initial load (awaited, so globe is never blank) ----------
-  await pollLatest();
-  const initialTs = latestPublishedTs;
+  // ---------- Initial load ----------
+  // Read lastupdate.txt directly, but don't publish the timestamp until the chunk is ready.
+  let initialTs = '';
+  try {
+    const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
+    const res = await fetch(proxy + encodeURIComponent('http://data.gdeltproject.org/gdeltv2/lastupdate.txt'));
+    if (res.ok) {
+      const text = await res.text();
+      const fileUrl = text.trim().split('\n')[0].split(' ')[2];
+      const match = fileUrl.match(/(\d{14})\.export\.CSV\.zip/);
+      if (match) initialTs = match[1];
+    }
+  } catch {}
+
+  if (!initialTs) {
+    // Fallback – use the clock's current chunk minus 15 minutes
+    const d = JulianDate.toDate(viewer.clock.currentTime);
+    d.setMinutes(d.getMinutes() - 15);
+    initialTs = chunkTimestamp(JulianDate.fromDate(d));
+  }
+
+  // Fetch and display the initial chunk, then enable the clock tick guardrail.
   try {
     const data = await fetchAndCacheChunk(initialTs);
     chunkCache.set(initialTs, data);
@@ -231,6 +250,10 @@ async function main() {
   } catch (err) {
     console.error('Initial chunk load failed:', err);
   }
+
+  // Now that the globe is populated, allow the clock tick to see the real latest timestamp.
+  latestPublishedTs = initialTs;
+  fetchQueue.setLatestChunk(initialTs);
 
   setInterval(pollLatest, 60_000);
   infoBox = new InfoBox(viewer, new Map(), new Map());
