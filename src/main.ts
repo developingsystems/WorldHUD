@@ -3,14 +3,13 @@ import {
   ClockStep, JulianDate, ClockRange,
 } from 'cesium';
 import { InfoBox } from './ui/infobox.js';
-import { fetchLatestChunk } from './data/fetch.js';
+import { fetchChunk } from './data/fetch.js';
 import { FetchQueue } from './data/queue.js';
 
+// ---------- Utility: chunk timestamp from a JulianDate ----------
 /** Return the end‑of‑window GDELT chunk timestamp for a given clock time. */
 function chunkTimestamp(clockTime: JulianDate): string {
   const d = JulianDate.toDate(clockTime);
-  // GDELT chunks are 15‑minute blocks named by their *end* time.
-  // e.g. 13:05 → chunk 1315 (covers 13:00‑13:14).
   d.setSeconds(0, 0);
   d.setMinutes(Math.ceil((d.getMinutes() + 1) / 15) * 15);
   if (d.getMinutes() === 60) {
@@ -29,7 +28,7 @@ async function fetchAndCacheChunk(
   articleMap: Map<string, Record<string, unknown>[]>;
   articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
 }> {
-  const { geojson } = await fetchLatestChunk(ts, signal);
+  const { geojson } = await fetchChunk(ts, signal);
 
   // Build articleMap (SOURCEURL → events)
   const articleMap = new Map<string, Record<string, unknown>[]>();
@@ -153,12 +152,21 @@ async function main() {
 
   // ---------- Adaptive pre‑fetch ----------
   function schedulePreFetch() {
-    const multiplier = viewer.clock.multiplier;
+    const animating = viewer.clock.shouldAnimate;
+    const multiplier = Math.abs(viewer.clock.multiplier);
     let windowSize = 0;
-    if (multiplier <= 60) windowSize = 3;          // current ±3
-    else if (multiplier <= 150) windowSize = 2;    // current ±2
-    else if (multiplier <= 300) windowSize = 1;    // current ±1
-    // > 300× → only fetch current
+
+    // Paused or real‑time → maximum window
+    if (!animating || multiplier <= 1) {
+      windowSize = 3;
+    } else if (multiplier <= 60) {
+      windowSize = 3;          // current ±3
+    } else if (multiplier <= 150) {
+      windowSize = 2;          // current ±2
+    } else if (multiplier <= 300) {
+      windowSize = 1;          // current ±1
+    }
+    // > 300× → only fetch current (windowSize = 0)
 
     const offsets: number[] = [];
     for (let i = 1; i <= windowSize; i++) {
@@ -189,6 +197,8 @@ async function main() {
   viewer.clock.onTick.addEventListener((clock) => {
     const ts = chunkTimestamp(clock.currentTime);
     if (ts === lastDisplayedTs) return;
+
+    // Only the current chunk deserves high priority
     fetchQueue.downgradeAllExcept(ts);
 
     // Already cached → show immediately
