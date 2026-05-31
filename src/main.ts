@@ -92,6 +92,8 @@ async function main() {
   // Current displayed data source – used for flicker‑free swap
   let currentDataSource: GeoJsonDataSource | null = null;
 
+  let initialLoadComplete = false;
+  
   // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
     // Called when a chunk finishes fetching.
