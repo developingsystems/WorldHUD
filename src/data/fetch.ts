@@ -111,9 +111,9 @@ export async function fetchLatestChunk(
 
   const [eventsGeojson, mentionsArray, gkgRecords] = await Promise.all([eventsPromise, mentionsPromise, gkgPromise]);
 
-  console.log(`✅ Loaded ${eventsGeojson.features.length} events`);
-  console.log(`✅ Loaded ${mentionsArray.length} mentions`);
-  console.log(`✅ Loaded ${gkgRecords.length} GKG records`);
+  console.log(`[${timestamp}] ✅ Loaded ${eventsGeojson.features.length} events`);
+  console.log(`[${timestamp}] ✅ Loaded ${mentionsArray.length} mentions`);
+  console.log(`[${timestamp}] ✅ Loaded ${gkgRecords.length} GKG records`);
 
   // ---------- 8. Build lookup maps ----------
   const mentionsMap = new Map<string, string[]>();
