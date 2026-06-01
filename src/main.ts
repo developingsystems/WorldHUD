@@ -40,6 +40,8 @@ async function fetchAndCacheChunk(
   }
 
   const articleSources = new Map<string, { fundus?: string; stage1?: string; stage2?: string }>();
+
+  // Fetch article JSON through the CORS proxy (same as all other fetches)
   try {
     const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
     const base = 'https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles';
@@ -51,7 +53,7 @@ async function fetchAndCacheChunk(
       }
     }
   } catch {
-    // article JSON not yet available – will be filled later by the polling timer
+    // article JSON not yet ready – will be filled later by the polling retry
   }
 
   return { geojson, articleMap, articleSources };
@@ -147,23 +149,40 @@ async function main() {
     if (infoBox) {
       infoBox.updateData(cached.articleMap, cached.articleSources);
 
-      // If no article text is available yet, retry the fetch silently
+      // ---------- Polling retry for article JSON ----------
+      // Clear any previous interval for this chunk
+      const existingInterval = (cached as any)._articlePollInterval;
+      if (existingInterval) clearInterval(existingInterval);
+
       const hasAnyArticle = [...cached.articleSources.values()].some(
         (s) => s.fundus || s.stage1 || s.stage2,
       );
+
       if (!hasAnyArticle) {
         const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
         const base = 'https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles';
-        fetch(proxy + encodeURIComponent(`${base}/articles_${ts}.json`))
-          .then((res) => (res.ok ? res.json() : null))
-          .then((data: Record<string, string> | null) => {
-            if (!data) return;
-            for (const url of cached.articleMap.keys()) {
-              if (data[url]) cached.articleSources.set(url, { stage2: data[url] });
-            }
-            infoBox!.updateData(cached.articleMap, cached.articleSources);
-          })
-          .catch(() => {}); // silent retry
+        const url = proxy + encodeURIComponent(`${base}/articles_${ts}.json`);
+
+        const tryFetch = () => {
+          fetch(url)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data: Record<string, string> | null) => {
+              if (!data) return;
+              for (const u of cached.articleMap.keys()) {
+                if (data[u]) cached.articleSources.set(u, { stage2: data[u] });
+              }
+              infoBox!.updateData(cached.articleMap, cached.articleSources);
+              // Stop polling now that we have articles
+              const intervalId = (cached as any)._articlePollInterval;
+              if (intervalId) clearInterval(intervalId);
+              (cached as any)._articlePollInterval = null;
+            })
+            .catch(() => {}); // silent retry
+        };
+
+        // Try immediately, then every 10 seconds
+        tryFetch();
+        (cached as any)._articlePollInterval = setInterval(tryFetch, 10000);
       }
     }
   }
@@ -231,7 +250,6 @@ async function main() {
 
     if (ts > latestPublishedTs) return;
 
-    // Cancel stale tasks when moving fast
     if (Math.abs(viewer.clock.multiplier) > 300) {
       fetchQueue.abortAllExcept(ts);
     }
