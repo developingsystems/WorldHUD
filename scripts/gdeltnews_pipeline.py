@@ -11,10 +11,18 @@ from gdeltnews import download, reconstruct
 
 def main():
     now = datetime.now(timezone.utc)
-    # Most recently completed 15‑minute chunk
-    chunk_end = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-    chunk_start = chunk_end - timedelta(minutes=15)
-    timestamp = chunk_end.strftime("%Y%m%d%H%M%S")
+    import os
+    chunk_ts = os.environ.get('CHUNK_TIMESTAMP', 'auto')
+    if chunk_ts != 'auto' and len(chunk_ts) == 14:
+        # Use the specific timestamp requested by the HUD
+        chunk_end = datetime.strptime(chunk_ts, '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc)
+        chunk_start = chunk_end - timedelta(minutes=15)
+        timestamp = chunk_end.strftime('%Y%m%d%H%M%S')
+    else:
+        # Original logic – most recent complete chunk
+        chunk_end = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+        chunk_start = chunk_end - timedelta(minutes=15)
+        timestamp = chunk_end.strftime('%Y%m%d%H%M%S')
 
     print(f"Window: {chunk_start.isoformat()} → {chunk_end.isoformat()}  (timestamp: {timestamp})")
 
