@@ -81,9 +81,11 @@ async function main() {
     articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
   }>();
 
-  let infoBox: InfoBox | null = null;
-  let latestPublishedTs = '';
+  // InfoBox must be created BEFORE the initial chunk load so that updateDisplay
+  // can start polling for article JSON immediately.
+  const infoBox = new InfoBox(viewer, new Map(), new Map());
 
+  let latestPublishedTs = '';
   let currentDataSource: GeoJsonDataSource | null = null;
 
   // ---------- Dispatch secrets ----------
@@ -113,7 +115,7 @@ async function main() {
   // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
     const cached = chunkCache.get(ts);
-    if (!cached || !infoBox) return;
+    if (!cached) return;
     const clockTs = chunkTimestamp(viewer.clock.currentTime);
     if (ts === clockTs) {
       updateDisplay(ts, cached);
@@ -146,44 +148,39 @@ async function main() {
       timestampLabel.textContent = formatNato(ts);
     });
 
-    if (infoBox) {
-      infoBox.updateData(cached.articleMap, cached.articleSources);
+    infoBox.updateData(cached.articleMap, cached.articleSources);
 
-      // ---------- Polling retry for article JSON ----------
-      // Clear any previous interval for this chunk
-      const existingInterval = (cached as any)._articlePollInterval;
-      if (existingInterval) clearInterval(existingInterval);
+    // ---------- Polling retry for article JSON ----------
+    const existingInterval = (cached as any)._articlePollInterval;
+    if (existingInterval) clearInterval(existingInterval);
 
-      const hasAnyArticle = [...cached.articleSources.values()].some(
-        (s) => s.fundus || s.stage1 || s.stage2,
-      );
+    const hasAnyArticle = [...cached.articleSources.values()].some(
+      (s) => s.fundus || s.stage1 || s.stage2,
+    );
 
-      if (!hasAnyArticle) {
-        const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
-        const base = 'https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles';
-        const url = proxy + encodeURIComponent(`${base}/articles_${ts}.json`);
+    if (!hasAnyArticle) {
+      const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
+      const base = 'https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles';
+      const url = proxy + encodeURIComponent(`${base}/articles_${ts}.json`);
 
-        const tryFetch = () => {
-          fetch(url)
-            .then((res) => (res.ok ? res.json() : null))
-            .then((data: Record<string, string> | null) => {
-              if (!data) return;
-              for (const u of cached.articleMap.keys()) {
-                if (data[u]) cached.articleSources.set(u, { stage2: data[u] });
-              }
-              infoBox!.updateData(cached.articleMap, cached.articleSources);
-              // Stop polling now that we have articles
-              const intervalId = (cached as any)._articlePollInterval;
-              if (intervalId) clearInterval(intervalId);
-              (cached as any)._articlePollInterval = null;
-            })
-            .catch(() => {}); // silent retry
-        };
+      const tryFetch = () => {
+        fetch(url)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data: Record<string, string> | null) => {
+            if (!data) return;
+            for (const u of cached.articleMap.keys()) {
+              if (data[u]) cached.articleSources.set(u, { stage2: data[u] });
+            }
+            infoBox.updateData(cached.articleMap, cached.articleSources);
+            const intervalId = (cached as any)._articlePollInterval;
+            if (intervalId) clearInterval(intervalId);
+            (cached as any)._articlePollInterval = null;
+          })
+          .catch(() => {});
+      };
 
-        // Try immediately, then every 10 seconds
-        tryFetch();
-        (cached as any)._articlePollInterval = setInterval(tryFetch, 10000);
-      }
+      tryFetch();
+      (cached as any)._articlePollInterval = setInterval(tryFetch, 10000);
     }
   }
 
@@ -331,7 +328,6 @@ async function main() {
   }
 
   setInterval(pollLatest, 60_000);
-  infoBox = new InfoBox(viewer, new Map(), new Map());
 }
 
 main();
