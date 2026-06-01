@@ -1,31 +1,53 @@
 # Reconstruct GDELT full articles using gdeltnews.
 # Fires 6 minutes after each quarter‑hour, when all NGrams files are ready.
 
-
 import os
 import json
 import csv
 import tempfile
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from gdeltnews import download, reconstruct
 
+def article_json_exists(timestamp: str) -> bool:
+    """Return True if articles_{timestamp}.json already exists in the release."""
+    url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/articles_{timestamp}.json"
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
 def main():
     now = datetime.now(timezone.utc)
-    import os
-    chunk_ts = os.environ.get('CHUNK_TIMESTAMP', 'auto')
-    if chunk_ts != 'auto' and len(chunk_ts) == 14:
-        # Use the specific timestamp requested by the HUD
-        chunk_end = datetime.strptime(chunk_ts, '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc)
+
+    # ---------- Determine target chunk ----------
+    chunk_ts = os.environ.get("CHUNK_TIMESTAMP", "auto")
+    if chunk_ts != "auto" and len(chunk_ts) == 14:
+        # Dispatched by the HUD – use the exact requested timestamp
+        chunk_end = datetime.strptime(chunk_ts, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
         chunk_start = chunk_end - timedelta(minutes=15)
-        timestamp = chunk_end.strftime('%Y%m%d%H%M%S')
+        timestamp = chunk_end.strftime("%Y%m%d%H%M%S")
     else:
-        # Original logic – most recent complete chunk
+        # Cron run – most recent complete chunk, with 3‑minute grace period
         chunk_end = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+        # 3‑minute grace period – if the chunk's files aren't ready yet, fall back to the previous one
+        if (now - chunk_end).seconds < 180:
+            chunk_end = chunk_end - timedelta(minutes=15)
         chunk_start = chunk_end - timedelta(minutes=15)
-        timestamp = chunk_end.strftime('%Y%m%d%H%M%S')
+        timestamp = chunk_end.strftime("%Y%m%d%H%M%S")
 
     print(f"Window: {chunk_start.isoformat()} → {chunk_end.isoformat()}  (timestamp: {timestamp})")
 
+    # ---------- Skip if already reconstructed ----------
+    if article_json_exists(timestamp):
+        print(f"Articles for {timestamp} already exist – skipping.")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write("timestamp=skip\n")
+        return
+
+    # ---------- Download & reconstruct ----------
     with tempfile.TemporaryDirectory() as ngram_dir, \
          tempfile.TemporaryDirectory() as csv_dir:
 
