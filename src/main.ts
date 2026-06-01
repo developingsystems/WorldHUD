@@ -144,7 +144,28 @@ async function main() {
       timestampLabel.textContent = formatNato(ts);
     });
 
-    if (infoBox) infoBox.updateData(cached.articleMap, cached.articleSources);
+    if (infoBox) {
+      infoBox.updateData(cached.articleMap, cached.articleSources);
+
+      // If no article text is available yet, retry the fetch silently
+      const hasAnyArticle = [...cached.articleSources.values()].some(
+        (s) => s.fundus || s.stage1 || s.stage2,
+      );
+      if (!hasAnyArticle) {
+        const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
+        const base = 'https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles';
+        fetch(proxy + encodeURIComponent(`${base}/articles_${ts}.json`))
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data: Record<string, string> | null) => {
+            if (!data) return;
+            for (const url of cached.articleMap.keys()) {
+              if (data[url]) cached.articleSources.set(url, { stage2: data[url] });
+            }
+            infoBox!.updateData(cached.articleMap, cached.articleSources);
+          })
+          .catch(() => {}); // silent retry
+      }
+    }
   }
 
   // ---------- Adaptive pre‑fetch ----------
