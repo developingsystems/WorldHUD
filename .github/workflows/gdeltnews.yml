@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '6,21,36,51 * * * *'
   workflow_dispatch:
+    inputs:
+      chunk_timestamp:
+        description: 'Chunk timestamp (YYYYMMDDHHMMSS) to reconstruct'
+        required: false
+        default: 'auto'
 
 jobs:
   reconstruct:
@@ -21,6 +26,8 @@ jobs:
           pip install gdeltnews
       - name: Run reconstruction
         id: reconstruct
+        env:
+          CHUNK_TIMESTAMP: ${{ github.event.inputs.chunk_timestamp || 'auto' }}
         run: python scripts/gdeltnews_pipeline.py
       - name: Upload to GitHub Releases
         env:
