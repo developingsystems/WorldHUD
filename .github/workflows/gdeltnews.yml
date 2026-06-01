@@ -30,6 +30,7 @@ jobs:
           CHUNK_TIMESTAMP: ${{ github.event.inputs.chunk_timestamp || 'auto' }}
         run: python scripts/gdeltnews_pipeline.py
       - name: Upload to GitHub Releases
+        if: steps.reconstruct.outputs.timestamp != 'skip'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TIMESTAMP: ${{ steps.reconstruct.outputs.timestamp }}
