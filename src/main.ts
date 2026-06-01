@@ -41,8 +41,9 @@ async function fetchAndCacheChunk(
 
   const articleSources = new Map<string, { fundus?: string; stage1?: string; stage2?: string }>();
   try {
+    const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
     const base = 'https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles';
-    const res = await fetch(`${base}/articles_${ts}.json`, { signal });
+    const res = await fetch(proxy + encodeURIComponent(`${base}/articles_${ts}.json`), { signal });
     if (res.ok) {
       const data: Record<string, string> = await res.json();
       for (const url of articleMap.keys()) {
@@ -50,7 +51,7 @@ async function fetchAndCacheChunk(
       }
     }
   } catch {
-    // article JSON not yet ready
+    // article JSON not yet available – will be filled later by the polling timer
   }
 
   return { geojson, articleMap, articleSources };
