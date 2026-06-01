@@ -83,6 +83,30 @@ async function main() {
 
   let currentDataSource: GeoJsonDataSource | null = null;
 
+  // ---------- Dispatch secrets ----------
+  const DISPATCH_URL = import.meta.env.VITE_DISPATCH_URL || '';
+  const DISPATCH_SECRET = import.meta.env.VITE_DISPATCH_SECRET || '';
+
+  async function dispatchReconstruction(chunkTs: string) {
+    if (!DISPATCH_URL) return;
+    try {
+      await fetch(DISPATCH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Secret': DISPATCH_SECRET,
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: { chunk_timestamp: chunkTs },
+        }),
+      });
+      console.log(`[dispatch] Reconstruction requested for ${chunkTs}`);
+    } catch (err) {
+      console.warn('[dispatch] Failed to request reconstruction:', err);
+    }
+  }
+
   // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
     const cached = chunkCache.get(ts);
@@ -154,9 +178,16 @@ async function main() {
         if (idx >= timestamps.length) return;
         const t = timestamps[idx++];
         fetchQueue.enqueue(t, 'low', async (signal) => {
-          try { chunkCache.set(t, await fetchAndCacheChunk(t, signal)); }
-          catch (err) { if ((err as any).name === 'AbortError') return; }
-          finally { next(); }
+          let aborted = false;
+          try {
+            const data = await fetchAndCacheChunk(t, signal);
+            chunkCache.set(t, data);
+          } catch (err) {
+            if ((err as any).name === 'AbortError') {
+              aborted = true;
+            }
+          }
+          if (!aborted) next();
         });
       }
       next();
@@ -178,12 +209,11 @@ async function main() {
 
     if (ts > latestPublishedTs) return;
 
-    // Only aggressively abort when moving too fast for pre‑fetch to be useful
+    // Cancel stale tasks when moving fast
     if (Math.abs(viewer.clock.multiplier) > 300) {
       fetchQueue.abortAllExcept(ts);
     }
 
-    // Normal path – chunk exists, show it (or fetch if not cached)
     if (chunkCache.has(ts)) {
       updateDisplay(ts, chunkCache.get(ts)!);
       lastDisplayedTs = ts;
@@ -192,8 +222,14 @@ async function main() {
     }
 
     fetchQueue.enqueue(ts, 'high', async (signal) => {
-      try { chunkCache.set(ts, await fetchAndCacheChunk(ts, signal)); }
-      catch (err) { if ((err as any).name === 'AbortError') return; }
+      try {
+        const data = await fetchAndCacheChunk(ts, signal);
+        chunkCache.set(ts, data);
+        dispatchReconstruction(ts);
+      } catch (err) {
+        if ((err as any).name === 'AbortError') return;
+        console.error(`Failed to load chunk ${ts}:`, err);
+      }
     });
   });
 
@@ -215,6 +251,7 @@ async function main() {
           fetchQueue.enqueue(newTs, 'high', async (signal) => {
             const data = await fetchAndCacheChunk(newTs, signal);
             chunkCache.set(newTs, data);
+            dispatchReconstruction(newTs);
           });
         }
       }
@@ -222,7 +259,6 @@ async function main() {
   }
 
   // ---------- Initial load ----------
-  // Read lastupdate.txt directly, but don't publish the timestamp until the chunk is ready.
   let initialTs = '';
   try {
     const proxy = import.meta.env.VITE_CORS_PROXY_URL || '';
@@ -241,18 +277,15 @@ async function main() {
     initialTs = chunkTimestamp(JulianDate.fromDate(d));
   }
 
-  // Fetch and display the initial chunk.
   try {
     const data = await fetchAndCacheChunk(initialTs);
     chunkCache.set(initialTs, data);
-
-    // Set the guardrail BEFORE pre‑fetch so neighbours are eligible
     latestPublishedTs = initialTs;
     fetchQueue.setLatestChunk(initialTs);
-
     updateDisplay(initialTs, data);
     lastDisplayedTs = initialTs;
-    schedulePreFetch();                     // now works correctly
+    schedulePreFetch();
+    dispatchReconstruction(initialTs);
   } catch (err) {
     console.error('Initial chunk load failed:', err);
   }
