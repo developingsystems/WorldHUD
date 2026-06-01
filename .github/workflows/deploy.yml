@@ -35,6 +35,8 @@ jobs:
           VITE_CESIUM_ION_TOKEN: ${{ secrets.VITE_CESIUM_ION_TOKEN }}
           VITE_CORS_PROXY_URL: ${{ secrets.VITE_CORS_PROXY_URL }}
           VITE_ARCGIS_TOKEN: ${{ secrets.VITE_ARCGIS_TOKEN }}
+          VITE_DISPATCH_URL: ${{ secrets.VITE_DISPATCH_URL }}
+          VITE_DISPATCH_SECRET: ${{ secrets.VITE_DISPATCH_SECRET }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
