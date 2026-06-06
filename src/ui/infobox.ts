@@ -351,3 +351,4 @@ export class InfoBox {
     this.container.remove();
   }
 }
+
