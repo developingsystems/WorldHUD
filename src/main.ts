@@ -6,7 +6,7 @@ import { InfoBox } from './ui/infobox.js';
 import { fetchChunk } from './data/fetch.js';
 import { FetchQueue } from './data/queue.js';
 
-console.log('Cesium token prefix:', import.meta.env.VITE_CESIUM_ION_TOKEN?.slice(0, 15));
+console.log('Cesium token prefix:', import.meta.env.VITE_CESIUM_ION_TOKEN?.slice(0, 80));
 
 // ---------- Utility: chunk timestamp from a JulianDate ----------
 function chunkTimestamp(clockTime: JulianDate): string {
