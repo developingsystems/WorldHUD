@@ -13,7 +13,7 @@ import os
 import json
 import sys
 import urllib.request
-from fundus import Crawler
+from fundus import PublisherCollection, Crawler
 
 # ---------- helper ----------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
