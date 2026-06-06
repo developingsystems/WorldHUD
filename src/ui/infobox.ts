@@ -84,6 +84,8 @@ interface Snapshot {
   numMentions: number;
   tone: number;
   entityId: string;
+  /** The article map at the moment of capture – ensures the event list is never lost */
+  articleMap: Map<string, Record<string, unknown>[]>;
 }
 
 // =============================================================================
@@ -112,7 +114,8 @@ function renderGdelt(
   const title = sanitize(rawTitle);
 
   // Body: all events from this article, compact format
-  const siblings = articleMap.get(sourceUrl) || [];
+  // Use the snapshot's frozen article map, falling back to the live map if needed
+  const siblings = snapshot.articleMap.get(sourceUrl) || articleMap.get(sourceUrl) || [];
   let eventsHtml = '';
   siblings.forEach((evt) => {
     const gid  = (evt.globalEventId as string) || '';
@@ -265,6 +268,8 @@ export class InfoBox {
       numMentions: (p.numMentions as number) || 0,
       tone: (p.tone as number) || 0,
       entityId: entity.id,
+      // Freeze the article map so the event list is never lost
+      articleMap: new Map(this.articleMap),
     };
     this.currentSnapshot = snapshot;
 
