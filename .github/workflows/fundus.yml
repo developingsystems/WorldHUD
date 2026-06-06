@@ -29,7 +29,7 @@ jobs:
         env:
           CHUNK_TIMESTAMP: ${{ github.event.inputs.chunk_timestamp }}
           URLS: ${{ github.event.inputs.urls }}
-        run: python scripts/fundus_extract.py
+        run: python scripts/fundus_pipeline.py
       - name: Upload to GitHub Releases
         if: steps.extract.outputs.timestamp != 'skip'
         env:
