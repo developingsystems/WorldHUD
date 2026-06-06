@@ -1,4 +1,4 @@
-name: Reconstruct GDELT Full Articles
+name: gdeltnews articles
 
 on:
   schedule:
