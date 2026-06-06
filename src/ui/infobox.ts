@@ -209,6 +209,22 @@ export class InfoBox {
           border-radius: 4px;
           font-size: 12px;
         }
+        .infobox-close-btn {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          width: 20px;
+          height: 20px;
+          background: none;
+          border: none;
+          color: #aaa;
+          font-size: 16px;
+          cursor: pointer;
+          line-height: 1;
+        }
+        .infobox-close-btn:hover {
+          color: white;
+        }
       `;
       document.head.appendChild(styleEl);
     }
@@ -231,6 +247,8 @@ export class InfoBox {
       z-index: 1000;
       display: none;
     `;
+    // Required for absolute positioning of the close button
+    this.container.style.position = 'relative'; // overridden below, but we need the container to be relative for the button
     viewer.container.appendChild(this.container);
 
     // Build dropdown (visible only when an entity is selected)
@@ -301,6 +319,13 @@ export class InfoBox {
 
   private show(): void {
     this.container.innerHTML = '';
+
+    // Close button (top‑right corner)
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'infobox-close-btn';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => this.hide());
+    this.container.appendChild(closeBtn);
 
     // Dropdown
     const url = this.currentSnapshot?.sourceUrl || '';
