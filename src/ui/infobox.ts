@@ -349,10 +349,25 @@ export class InfoBox {
     articleSources: ArticleSources,
   ) {
     this.articleMap = articleMap;
-    this.articleSources = articleSources;
+
+    // Preserve article text for the currently open snapshot
+    if (this.currentSnapshot) {
+      const url = this.currentSnapshot.sourceUrl;
+      const oldSources = this.articleSources.get(url) || {};
+      const newSources = articleSources.get(url) || {};
+      // Merge: keep old texts that are not yet in the new map
+      const merged = { ...oldSources, ...newSources };
+      // Replace the entry in the new map
+      const updatedSources = new Map(articleSources);
+      updatedSources.set(url, merged);
+      this.articleSources = updatedSources;
+    } else {
+      this.articleSources = articleSources;
+    }
+
     if (this.currentSnapshot) {
       // Re‑select the best source with the new data
-      const sources = articleSources.get(this.currentSnapshot.sourceUrl) || {};
+      const sources = this.articleSources.get(this.currentSnapshot.sourceUrl) || {};
       const candidates: { source: 'fundus' | 'stage1' | 'stage2'; text: string }[] = [];
       if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
       if (sources.stage1) candidates.push({ source: 'stage1', text: sources.stage1 });
@@ -365,7 +380,7 @@ export class InfoBox {
       const { title, body } = renderGdelt(
         this.currentSnapshot,
         articleMap,
-        articleSources,
+        this.articleSources,
         this.currentSource,
       );
       this.currentTitle = title;
