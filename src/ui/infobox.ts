@@ -98,10 +98,7 @@ function renderGdelt(
   articleSources: ArticleSources,
   currentSource: 'fundus' | 'stage1' | 'stage2',
 ): { title: string; body: string } {
-  const {
-    sourceUrl, headlines, globalEventId, actor1, actor2,
-    eventCode, goldstein, numMentions, tone, entityId,
-  } = snapshot;
+  const { sourceUrl, headlines, globalEventId, entityId } = snapshot;
 
   const headline = headlines[0] || 'GDELT Event';
 
