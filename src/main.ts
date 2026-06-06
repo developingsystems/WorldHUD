@@ -1,6 +1,6 @@
 import {
   Viewer, GeoJsonDataSource, Color,
-  ClockStep, JulianDate, ClockRange,
+  ClockStep, JulianDate, ClockRange, Ion, ArcGisMapService,
 } from 'cesium';
 import { InfoBox } from './ui/infobox.js';
 import { fetchChunk } from './data/fetch.js';
@@ -63,6 +63,8 @@ async function fetchAndCacheChunk(
 
 // ---------- Main ----------
 async function main() {
+  Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
+  ArcGisMapService.defaultAccessToken = import.meta.env.VITE_ARCGIS_TOKEN;
   const viewer = new Viewer('cesiumContainer', { infoBox: false });
 
   viewer.clock.shouldAnimate = true;
