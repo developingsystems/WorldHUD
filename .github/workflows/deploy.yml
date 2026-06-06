@@ -30,7 +30,9 @@ jobs:
         run: npm ci
 
       - name: Build
-        run: npm run build -- --base /WorldHUD/
+        run: |
+          echo "Token prefix (should not be empty): ${VITE_CESIUM_ION_TOKEN:0:10}"
+          npm run build -- --base /WorldHUD/
         env:
           VITE_CESIUM_ION_TOKEN: ${{ secrets.VITE_CESIUM_ION_TOKEN }}
           VITE_CORS_PROXY_URL: ${{ secrets.VITE_CORS_PROXY_URL }}
