@@ -71,7 +71,7 @@ function sanitize(html: string): string {
 }
 
 // =============================================================================
-// Snapshot type – properties captured when an entity is selected
+// Snapshot type – captured when an entity is selected
 // =============================================================================
 interface Snapshot {
   sourceUrl: string;
@@ -99,7 +99,6 @@ function renderGdelt(
   currentSource: 'fundus' | 'stage1' | 'stage2',
 ): { title: string; body: string } {
   const { sourceUrl, headlines, globalEventId, entityId } = snapshot;
-
   const headline = headlines[0] || 'GDELT Event';
 
   const esc = (s: string) =>
@@ -250,10 +249,8 @@ export class InfoBox {
   }
 
   private onSelectionChanged(entity: Entity | undefined): void {
-    if (!entity || !entity.properties) {
-      this.hide();
-      return;
-    }
+    // Ignore deselection – keep the current snapshot alive
+    if (!entity || !entity.properties) return;
 
     // Capture a snapshot of the entity's properties now
     const p = entity.properties.getValue() || {};
