@@ -52,7 +52,7 @@ def main():
 
     # Fundus crawler – will automatically use publisher-specific parsers
     # where available, and fall back to its generic extractor.
-    crawler = Crawler(ignore_deprecated=False)
+    crawler = Crawler(PublisherCollection)
 
     for url in urls:
         try:
