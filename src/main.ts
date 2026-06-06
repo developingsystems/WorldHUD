@@ -127,7 +127,7 @@ async function main() {
         },
         body: JSON.stringify({
           ref: 'main',
-          workflow_id: 'fundus-extract',
+          workflow_id: 'fundus',
           inputs: {
             chunk_timestamp: chunkTs,
             urls: JSON.stringify(urls),
