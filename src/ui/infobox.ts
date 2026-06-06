@@ -71,23 +71,39 @@ function sanitize(html: string): string {
 }
 
 // =============================================================================
-// Template: GDELT event – shows all events from the same article, plus
-// a selectable full‑text article from one of three sources (Fundus/stage1/stage2)
+// Snapshot type – properties captured when an entity is selected
+// =============================================================================
+interface Snapshot {
+  sourceUrl: string;
+  headlines: string[];
+  globalEventId: string;
+  actor1: string;
+  actor2: string;
+  eventCode: string;
+  goldstein: number;
+  numMentions: number;
+  tone: number;
+  entityId: string;
+}
+
+// =============================================================================
+// Template: GDELT event – shows all events from the same article
 // =============================================================================
 
 type ArticleSources = Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
 
 function renderGdelt(
-  entity: Entity,
+  snapshot: Snapshot,
   articleMap: Map<string, Record<string, unknown>[]>,
   articleSources: ArticleSources,
   currentSource: 'fundus' | 'stage1' | 'stage2',
 ): { title: string; body: string } {
-  const p = entity.properties?.getValue() || {};
-  const sourceUrl = (p.sourceUrl as string) || '';
-  const headlines = (p.headlines as string[]) || [];
-  const headline  = headlines[0] || 'GDELT Event';
-  const clickedId = (p.globalEventId as string) || '';
+  const {
+    sourceUrl, headlines, globalEventId, actor1, actor2,
+    eventCode, goldstein, numMentions, tone, entityId,
+  } = snapshot;
+
+  const headline = headlines[0] || 'GDELT Event';
 
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -100,7 +116,7 @@ function renderGdelt(
   const title = sanitize(rawTitle);
 
   // Body: all events from this article, compact format
-  const siblings = articleMap.get(sourceUrl) || [p];
+  const siblings = articleMap.get(sourceUrl) || [];
   let eventsHtml = '';
   siblings.forEach((evt) => {
     const gid  = (evt.globalEventId as string) || '';
@@ -110,13 +126,12 @@ function renderGdelt(
     const gold = (evt.goldstein as number) || 0;
     const ment = (evt.numMentions as number) || 0;
     const ton  = (evt.tone as number) || 0;
-    const isClicked = gid === clickedId;
+    const isClicked = gid === globalEventId;
 
     const highlightStyle = isClicked
       ? 'border-left: 2px solid #66aaff; padding-left: 6px;'
       : 'border-left: 2px solid transparent; padding-left: 6px;';
 
-    // Dual‑hover: row title shows Global Event ID, verb span shows full CAMEO phrase
     eventsHtml += `
       <div style="${highlightStyle} margin-bottom: 7px; font-size: 12px;" title="Global Event ID: ${esc(gid)}">
                 <strong>${esc(a1)} <span title="${esc(getVerb(code))}">${esc(getRootVerbPast(code))}</span> ${esc(a2)}</strong> | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
@@ -135,7 +150,7 @@ function renderGdelt(
         ${articleText ? `<p>${esc(articleText)}</p>` : '<p style="color: gray;">Article text not yet available for this source.</p>'}
       </div>
       <hr>
-      <p class="infobox-uuid">Entity UUID: ${esc(entity.id)}</p>
+      <p class="infobox-uuid">Entity UUID: ${esc(entityId)}</p>
     </div>
   `;
 
@@ -155,7 +170,7 @@ export class InfoBox {
   private currentSource: 'fundus' | 'stage1' | 'stage2' = 'stage1';
   private currentTitle: string = '';
   private currentBody: string = '';
-  private currentEntity: Entity | undefined;
+  private currentSnapshot: Snapshot | null = null;
 
   constructor(
     viewer: Viewer,
@@ -242,12 +257,25 @@ export class InfoBox {
       this.hide();
       return;
     }
-    this.currentEntity = entity;
-    const p = entity.properties.getValue() || {};
-    const url = (p.sourceUrl as string) || '';
-    const sources = this.articleSources.get(url) || {};
 
-    // Pick the longest available version by default
+    // Capture a snapshot of the entity's properties now
+    const p = entity.properties.getValue() || {};
+    const snapshot: Snapshot = {
+      sourceUrl: (p.sourceUrl as string) || '',
+      headlines: (p.headlines as string[]) || [],
+      globalEventId: (p.globalEventId as string) || '',
+      actor1: (p.actor1 as string) || '',
+      actor2: (p.actor2 as string) || '',
+      eventCode: (p.eventCode as string) || '',
+      goldstein: (p.goldstein as number) || 0,
+      numMentions: (p.numMentions as number) || 0,
+      tone: (p.tone as number) || 0,
+      entityId: entity.id,
+    };
+    this.currentSnapshot = snapshot;
+
+    // Determine the best available source for this article
+    const sources = this.articleSources.get(snapshot.sourceUrl) || {};
     const candidates: { source: 'fundus' | 'stage1' | 'stage2'; text: string }[] = [];
     if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
     if (sources.stage1) candidates.push({ source: 'stage1', text: sources.stage1 });
@@ -258,15 +286,20 @@ export class InfoBox {
       ).source;
     }
 
-    const { title, body } = renderGdelt(entity, this.articleMap, this.articleSources, this.currentSource);
+    const { title, body } = renderGdelt(snapshot, this.articleMap, this.articleSources, this.currentSource);
     this.currentTitle = title;
     this.currentBody = body;
     this.show();
   }
 
   private refreshArticle(): void {
-    if (!this.currentEntity) return;
-    const { title, body } = renderGdelt(this.currentEntity, this.articleMap, this.articleSources, this.currentSource);
+    if (!this.currentSnapshot) return;
+    const { title, body } = renderGdelt(
+      this.currentSnapshot,
+      this.articleMap,
+      this.articleSources,
+      this.currentSource,
+    );
     this.currentTitle = title;
     this.currentBody = body;
     this.show();
@@ -276,8 +309,7 @@ export class InfoBox {
     this.container.innerHTML = '';
 
     // Dropdown
-    const p = this.currentEntity?.properties?.getValue() || {};
-    const url = (p.sourceUrl as string) || '';
+    const url = this.currentSnapshot?.sourceUrl || '';
     const sources = this.articleSources.get(url) || {};
     this.dropdown.innerHTML = '';
     const options: { value: 'fundus' | 'stage1' | 'stage2'; label: string }[] = [
@@ -316,20 +348,19 @@ export class InfoBox {
     this.container.style.display = 'none';
     this.container.innerHTML = '';
     this.dropdown.style.display = 'none';
+    this.currentSnapshot = null;
   }
 
-  /** Replace the underlying data and refresh the currently selected entity. */
+  /** Replace the underlying data and refresh if a snapshot is open. */
   updateData(
     articleMap: Map<string, Record<string, unknown>[]>,
     articleSources: ArticleSources,
   ) {
     this.articleMap = articleMap;
     this.articleSources = articleSources;
-    if (this.currentEntity) {
-      // Re‑select the best source for the new data
-      const p = this.currentEntity.properties?.getValue() || {};
-      const url = (p.sourceUrl as string) || '';
-      const sources = articleSources.get(url) || {};
+    if (this.currentSnapshot) {
+      // Re‑select the best source with the new data
+      const sources = articleSources.get(this.currentSnapshot.sourceUrl) || {};
       const candidates: { source: 'fundus' | 'stage1' | 'stage2'; text: string }[] = [];
       if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
       if (sources.stage1) candidates.push({ source: 'stage1', text: sources.stage1 });
@@ -339,7 +370,12 @@ export class InfoBox {
           cur.text.length > best.text.length ? cur : best
         ).source;
       }
-      const { title, body } = renderGdelt(this.currentEntity, articleMap, articleSources, this.currentSource);
+      const { title, body } = renderGdelt(
+        this.currentSnapshot,
+        articleMap,
+        articleSources,
+        this.currentSource,
+      );
       this.currentTitle = title;
       this.currentBody = body;
       this.show();
