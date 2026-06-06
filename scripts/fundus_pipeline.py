@@ -11,14 +11,9 @@ Outputs:
 
 import os
 import json
-import csv
-import tempfile
 import sys
-import time
 import urllib.request
-from datetime import datetime, timezone
-from fundus import PublisherCollection, Crawler, NewsArticle
-from fundus.parser import ArticleBody
+from fundus import Crawler
 
 # ---------- helper ----------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
@@ -53,22 +48,21 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Fundus requires the PublisherCollection to be initialised
-    # We'll use the default crawler that covers all supported publishers.
     articles: dict[str, str] = {}
+
+    # Fundus crawler – will automatically use publisher-specific parsers
+    # where available, and fall back to its generic extractor.
+    crawler = Crawler()
 
     for url in urls:
         try:
-            # Fundus can extract from a URL directly
-            article = NewsArticle(url)
-            article.fetch()
-            if article.body:
+            article = crawler.crawl(url)
+            if article and article.body and article.body.text:
                 articles[url] = article.body.text
             else:
                 print(f"  No body extracted: {url}")
         except Exception as e:
             print(f"  Extraction failed for {url}: {e}")
-            # Continue with next URL
 
     os.makedirs("articles", exist_ok=True)
     output_path = f"articles/fundus_{timestamp}.json"
