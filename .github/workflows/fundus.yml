@@ -1,4 +1,4 @@
-name: Fundus Article Extraction
+name: Fundus articles
 
 on:
   workflow_dispatch:
