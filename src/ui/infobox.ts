@@ -312,7 +312,7 @@ export class InfoBox {
     this.dropdown.innerHTML = '';
     const options: { value: 'fundus' | 'stage2'; label: string }[] = [
       { value: 'fundus', label: 'Fundus' },
-      { value: 'stage2', label: 'NGram' },
+      { value: 'stage2', label: 'gdeltnews' },
     ];
     options.forEach(opt => {
       const optionEl = document.createElement('option');
