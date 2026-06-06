@@ -92,13 +92,13 @@ interface Snapshot {
 // Template: GDELT event – shows all events from the same article
 // =============================================================================
 
-type ArticleSources = Map<string, { fundus?: string; stage2?: string }>;
+type ArticleSources = Map<string, { fundus?: string; gdeltnews?: string }>;
 
 function renderGdelt(
   snapshot: Snapshot,
   articleMap: Map<string, Record<string, unknown>[]>,
   articleSources: ArticleSources,
-  currentSource: 'fundus' | 'stage2',
+  currentSource: 'fundus' | 'gdeltnews',
 ): { title: string; body: string } {
   const { sourceUrl, headlines, globalEventId, entityId } = snapshot;
   const headline = headlines[0] || 'GDELT Event';
@@ -139,7 +139,7 @@ function renderGdelt(
 
   // Full‑text article from the currently selected source
   const sources = articleSources.get(sourceUrl) || {};
-  const articleText = sources[currentSource] || sources.stage2 || sources.fundus || '';
+  const articleText = sources[currentSource] || sources.gdeltnews || sources.fundus || '';
 
   const rawBody = `
     <div class="infobox-body">
@@ -166,7 +166,7 @@ export class InfoBox {
   private articleMap: Map<string, Record<string, unknown>[]>;
   private articleSources: ArticleSources;
   private dropdown: HTMLSelectElement;
-  private currentSource: 'fundus' | 'stage2' = 'stage2';
+  private currentSource: 'fundus' | 'gdeltnews' = 'gdeltnews';
   private currentTitle: string = '';
   private currentBody: string = '';
   private currentSnapshot: Snapshot | null = null;
@@ -241,7 +241,7 @@ export class InfoBox {
     this.dropdown.className = 'infobox-source-select';
     this.dropdown.style.display = 'none';
     this.dropdown.addEventListener('change', () => {
-      this.currentSource = this.dropdown.value as 'fundus' | 'stage2';
+      this.currentSource = this.dropdown.value as 'fundus' | 'gdeltnews';
       this.refreshArticle();
     });
 
@@ -273,11 +273,11 @@ export class InfoBox {
     };
     this.currentSnapshot = snapshot;
 
-    // Determine the best available source for this article (only fundus and stage2 now)
+    // Determine the best available source for this article
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
-    const candidates: { source: 'fundus' | 'stage2'; text: string }[] = [];
+    const candidates: { source: 'fundus' | 'gdeltnews'; text: string }[] = [];
     if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
-    if (sources.stage2) candidates.push({ source: 'stage2', text: sources.stage2 });
+    if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: sources.gdeltnews });
     if (candidates.length > 0) {
       this.currentSource = candidates.reduce((best, cur) =>
         cur.text.length > best.text.length ? cur : best
@@ -310,9 +310,9 @@ export class InfoBox {
     const url = this.currentSnapshot?.sourceUrl || '';
     const sources = this.articleSources.get(url) || {};
     this.dropdown.innerHTML = '';
-    const options: { value: 'fundus' | 'stage2'; label: string }[] = [
+    const options: { value: 'fundus' | 'gdeltnews'; label: string }[] = [
       { value: 'fundus', label: 'Fundus' },
-      { value: 'stage2', label: 'gdeltnews' },
+      { value: 'gdeltnews', label: 'gdeltnews' },
     ];
     options.forEach(opt => {
       const optionEl = document.createElement('option');
@@ -364,11 +364,11 @@ export class InfoBox {
     }
 
     if (this.currentSnapshot) {
-      // Re‑select the best source with the new data (only fundus and stage2)
+      // Re‑select the best source with the new data
       const sources = this.articleSources.get(this.currentSnapshot.sourceUrl) || {};
-      const candidates: { source: 'fundus' | 'stage2'; text: string }[] = [];
+      const candidates: { source: 'fundus' | 'gdeltnews'; text: string }[] = [];
       if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
-      if (sources.stage2) candidates.push({ source: 'stage2', text: sources.stage2 });
+      if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: sources.gdeltnews });
       if (candidates.length > 0) {
         this.currentSource = candidates.reduce((best, cur) =>
           cur.text.length > best.text.length ? cur : best
