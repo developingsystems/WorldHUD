@@ -25,7 +25,7 @@ async function fetchAndCacheChunk(
 ): Promise<{
   geojson: import('geojson').FeatureCollection;
   articleMap: Map<string, Record<string, unknown>[]>;
-  articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
+  articleSources: Map<string, { fundus?: string; gdeltnews?: string }>;
 }> {
   const { geojson } = await fetchChunk(ts, signal);
 
@@ -39,7 +39,7 @@ async function fetchAndCacheChunk(
     }
   }
 
-  const articleSources = new Map<string, { fundus?: string; stage1?: string; stage2?: string }>();
+  const articleSources = new Map<string, { fundus?: string; gdeltnews?: string }>();
 
   // Fetch article JSON through the CORS proxy (same as all other fetches)
   try {
@@ -49,7 +49,7 @@ async function fetchAndCacheChunk(
     if (res.ok) {
       const data: Record<string, string> = await res.json();
       for (const url of articleMap.keys()) {
-        if (data[url]) articleSources.set(url, { stage2: data[url] });
+        if (data[url]) articleSources.set(url, { gdeltnews: data[url] });
       }
     }
   } catch {
@@ -61,8 +61,10 @@ async function fetchAndCacheChunk(
 
 // ---------- Main ----------
 async function main() {
+  // Set the access tokens BEFORE creating the viewer
   Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
   ArcGisMapService.defaultAccessToken = import.meta.env.VITE_ARCGIS_TOKEN;
+
   const viewer = new Viewer('cesiumContainer', { infoBox: false });
 
   viewer.clock.shouldAnimate = true;
@@ -80,7 +82,7 @@ async function main() {
   const chunkCache = new Map<string, {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
-    articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
+    articleSources: Map<string, { fundus?: string; gdeltnews?: string }>;
   }>();
 
   // InfoBox must be created BEFORE the initial chunk load so that updateDisplay
@@ -114,6 +116,30 @@ async function main() {
     }
   }
 
+  async function dispatchFundusExtraction(chunkTs: string, urls: string[]) {
+    if (!DISPATCH_URL || urls.length === 0) return;
+    try {
+      await fetch(DISPATCH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Secret': DISPATCH_SECRET,
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          workflow_id: 'fundus-extract',
+          inputs: {
+            chunk_timestamp: chunkTs,
+            urls: JSON.stringify(urls),
+          },
+        }),
+      });
+      console.log(`[dispatch] Fundus extraction requested for ${chunkTs} (${urls.length} URLs)`);
+    } catch (err) {
+      console.warn('[dispatch] Failed to request Fundus extraction:', err);
+    }
+  }
+
   // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
     const cached = chunkCache.get(ts);
@@ -136,7 +162,7 @@ async function main() {
   function updateDisplay(ts: string, cached: {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
-    articleSources: Map<string, { fundus?: string; stage1?: string; stage2?: string }>;
+    articleSources: Map<string, { fundus?: string; gdeltnews?: string }>;
   }) {
     const newDs = new GeoJsonDataSource('chunk');
     newDs.load(cached.geojson, {
@@ -157,7 +183,7 @@ async function main() {
     if (existingInterval) clearInterval(existingInterval);
 
     const hasAnyArticle = [...cached.articleSources.values()].some(
-      (s) => s.fundus || s.stage1 || s.stage2,
+      (s) => s.fundus || s.gdeltnews,
     );
 
     if (!hasAnyArticle) {
@@ -171,7 +197,7 @@ async function main() {
           .then((data: Record<string, string> | null) => {
             if (!data) return;
             for (const u of cached.articleMap.keys()) {
-              if (data[u]) cached.articleSources.set(u, { stage2: data[u] });
+              if (data[u]) cached.articleSources.set(u, { gdeltnews: data[u] });
             }
             infoBox.updateData(cached.articleMap, cached.articleSources);
             const intervalId = (cached as any)._articlePollInterval;
@@ -265,6 +291,8 @@ async function main() {
         const data = await fetchAndCacheChunk(ts, signal);
         chunkCache.set(ts, data);
         dispatchReconstruction(ts);
+        const urls = [...data.articleMap.keys()];
+        dispatchFundusExtraction(ts, urls);
       } catch (err) {
         if ((err as any).name === 'AbortError') return;
         console.error(`Failed to load chunk ${ts}:`, err);
@@ -291,6 +319,8 @@ async function main() {
             const data = await fetchAndCacheChunk(newTs, signal);
             chunkCache.set(newTs, data);
             dispatchReconstruction(newTs);
+            const urls = [...data.articleMap.keys()];
+            dispatchFundusExtraction(newTs, urls);
           });
         }
       }
@@ -325,6 +355,8 @@ async function main() {
     lastDisplayedTs = initialTs;
     schedulePreFetch();
     dispatchReconstruction(initialTs);
+    const urls = [...data.articleMap.keys()];
+    dispatchFundusExtraction(initialTs, urls);
   } catch (err) {
     console.error('Initial chunk load failed:', err);
   }
