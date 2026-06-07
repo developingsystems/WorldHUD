@@ -48,22 +48,23 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Fundus crawler – crawl() returns a generator that must be iterated
     crawler = Crawler(PublisherCollection)
-
     articles: dict[str, str] = {}
 
-    # Iterate over the generator to get each crawled article
     for article in crawler.crawl():
         try:
-            # article.html_requested is the URL that was requested
-            url = article.html_requested
+            url = article.html_url
             if url and article.body and article.body.text:
                 articles[url] = article.body.text
             else:
-                print(f"  No body extracted for requested URL: {url}")
+                reasons = []
+                if not url:
+                    reasons.append("missing URL")
+                if not article.body or not article.body.text:
+                    reasons.append("no extractable text")
+                print(f"Extraction failed for {url or 'unknown'}: {', '.join(reasons)}")
         except Exception as e:
-            print(f"  Extraction failed: {e}")
+            print(f"Extraction failed: {e}")
 
     os.makedirs("articles", exist_ok=True)
     output_path = f"articles/fundus_{timestamp}.json"
