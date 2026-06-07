@@ -18,7 +18,8 @@ from urllib.parse import urlparse
 import requests
 from requests.exceptions import TooManyRedirects
 
-from fundus import PublisherCollection, Parser
+from fundus import PublisherCollection
+from fundus.parser import Parser
 
 # ---------------------------------------------------------------------------
 # Build a domain → Publisher mapping directly from Fundus
