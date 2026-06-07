@@ -14,6 +14,7 @@ import json
 import sys
 import urllib.request
 from fundus import PublisherCollection, Crawler
+from requests.exceptions import TooManyRedirects
 
 # ---------- helper ----------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
@@ -53,7 +54,6 @@ def main():
 
     for article in crawler.crawl():
         try:
-            # Correct way to get the URL: article.html.requested_url
             url = article.html.requested_url
             if url and article.body and article.body.text:
                 articles[url] = article.body.text
@@ -63,9 +63,11 @@ def main():
                     reasons.append("missing URL")
                 if not article.body or not article.body.text:
                     reasons.append("no extractable text")
-                print(f"Extraction failed for {url or 'unknown'}: {', '.join(reasons)}")
+                print(f"  Extraction failed for {url or 'unknown'}: {', '.join(reasons)}")
+        except TooManyRedirects as e:
+            print(f"  Skipping article with redirect loop: {article.html.requested_url if article.html else 'Unknown URL'}")
         except Exception as e:
-            print(f"Extraction failed: {e}")
+            print(f"  Extraction failed: {e}")
 
     os.makedirs("articles", exist_ok=True)
     output_path = f"articles/fundus_{timestamp}.json"
