@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Parser‑based approach.
+"""Fundus article extraction for WorldHUD – Robust Parser-based pipeline.
 
-- Uses the official supported_publishers.md file for domain discovery.
-- Filters GDELT URLs to only those from Fundus‑supported domains.
-- Fetches HTML in parallel and extracts text with per‑publisher Parsers.
+- Uses Fundus's internal .domains attribute for reliable publisher mapping.
+- Filters GDELT URLs to only those from supported domains.
+- Fetches HTML in parallel and extracts text with per-publisher Parsers.
 - Handles redirect loops, timeouts, and other errors gracefully.
 """
 
@@ -14,66 +14,29 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
-from collections import defaultdict
 
 import requests
 from requests.exceptions import TooManyRedirects
 
 from fundus import PublisherCollection, Parser
 
-# URL of the official Fundus supported‑publishers list
-SUPPORTED_PUBLISHERS_URL = (
-    "https://raw.githubusercontent.com/flairNLP/fundus/main/docs/"
-    "supported_publishers.md"
-)
-
-
 # ---------------------------------------------------------------------------
-# Build a domain → Publisher mapping from the official markdown file
+# Build a domain → Publisher mapping directly from Fundus
 # ---------------------------------------------------------------------------
 def build_publisher_map() -> dict[str, object]:
-    """Download the supported_publishers.md file and return a dict mapping
-    each supported domain string to its corresponding Fundus Publisher object."""
-
-    resp = requests.get(SUPPORTED_PUBLISHERS_URL, timeout=15)
-    resp.raise_for_status()
-    lines = resp.text.splitlines()
-
-    # The markdown file organises publishers by region.
-    # We'll parse lines like:
-    #   - **Publisher Name** (domain1.com, domain2.org)
+    """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object."""
     mapping = {}
-    current_region = None
-
-    for line in lines:
-        line = line.strip()
-        if line.startswith("## "):
-            # Region heading, e.g. "## US"
-            current_region = line[3:].strip().lower()
-        elif line.startswith("- **") and current_region:
-            # Publisher line: "- **The New Yorker** (newyorker.com)"
-            try:
-                # Extract name and domains
-                name_part = line[4:]  # remove "- **"
-                name_end = name_part.index("**")
-                pub_name = name_part[:name_end]
-                # Everything after the name is the domain list in parentheses
-                rest = name_part[name_end + 2:].strip()
-                if rest.startswith("(") and rest.endswith(")"):
-                    domains_str = rest[1:-1]  # remove parentheses
-                    domains = [d.strip() for d in domains_str.split(",") if d.strip()]
-
-                    # Find the actual Publisher object from PublisherCollection
-                    regional = getattr(PublisherCollection, current_region, None)
-                    if regional is not None:
-                        for publisher in regional:
-                            if publisher.name.lower() == pub_name.lower():
-                                for domain in domains:
-                                    mapping[domain] = publisher
-                                break
-            except (ValueError, IndexError):
-                continue
-
+    # Iterate through all country regions in PublisherCollection
+    for country_code in [attr for attr in dir(PublisherCollection) if not attr.startswith("_")]:
+        region = getattr(PublisherCollection, country_code)
+        # Check if it's a list (multiple publishers) or a single publisher
+        if isinstance(region, list):
+            for publisher in region:
+                for domain in getattr(publisher, 'domains', []):
+                    mapping[domain] = publisher
+        elif hasattr(region, 'domains'):
+            for domain in getattr(region, 'domains', []):
+                mapping[domain] = region
     print(f"  Built publisher map with {len(mapping)} domain entries")
     return mapping
 
@@ -82,6 +45,7 @@ def build_publisher_map() -> dict[str, object]:
 # Helper: filter URLs to supported domains
 # ---------------------------------------------------------------------------
 def filter_urls(urls: list[str], supported: dict[str, object]) -> list[str]:
+    """Return URLs whose domain is present in the supported publishers map."""
     return [url for url in urls if urlparse(url).netloc in supported]
 
 
@@ -122,7 +86,7 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Build publisher map from the official markdown file
+    # Build publisher map from Fundus's own data structures
     supported_publishers = build_publisher_map()
     filtered = filter_urls(urls, supported_publishers)
     print(f"  Filtered down to {len(filtered)} supported URLs")
