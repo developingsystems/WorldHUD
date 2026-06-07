@@ -53,7 +53,8 @@ def main():
 
     for article in crawler.crawl():
         try:
-            url = article.html_url
+            # Correct way to get the URL: article.html.requested_url
+            url = article.html.requested_url
             if url and article.body and article.body.text:
                 articles[url] = article.body.text
             else:
