@@ -19,7 +19,7 @@ import requests
 from requests.exceptions import TooManyRedirects
 
 from fundus import PublisherCollection
-from fundus.parser import Parser
+from fundus.parser import ParserProxy
 
 # ---------------------------------------------------------------------------
 # Build a domain → Publisher mapping directly from Fundus
@@ -117,7 +117,7 @@ def main():
             print(f"  ❌ Network error for {url}: {e}")
             return url, None
 
-        parser = Parser(pub)
+parser = ParserProxy(pub)
         try:
             article = parser.parse(resp.text, url)
             if article.body and article.body.text:
