@@ -117,7 +117,7 @@ def main():
             print(f"  ❌ Network error for {url}: {e}")
             return url, None
 
-parser = ParserProxy(pub)
+        parser = ParserProxy(pub)
         try:
             article = parser.parse(resp.text, url)
             if article.body and article.body.text:
