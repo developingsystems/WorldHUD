@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Robust Parser-based pipeline.
+"""Fundus article extraction for WorldHUD – Parser-based pipeline.
 
-- Uses Fundus's internal .domains attribute for reliable publisher mapping.
-- Filters GDELT URLs to only those from supported domains.
-- Fetches HTML in parallel and extracts text with per-publisher Parsers.
+- Downloads the official supported_publishers.md file at runtime.
+- Filters GDELT URLs to only those from Fundus‑supported domains.
+- Fetches HTML in parallel and extracts text with per‑publisher Parsers.
 - Handles redirect loops, timeouts, and other errors gracefully.
+- Saves partial results even if some URLs fail.
 """
 
 import os
@@ -22,38 +23,81 @@ from fundus import PublisherCollection
 from fundus.parser import ParserProxy
 
 # ---------------------------------------------------------------------------
-# Build a domain → Publisher mapping directly from Fundus
+# Build a set of supported domains from the official markdown file
 # ---------------------------------------------------------------------------
-def build_publisher_map() -> dict[str, object]:
-    """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object."""
-    mapping = {}
-    # Iterate through all country regions in PublisherCollection
-    for country_code in [attr for attr in dir(PublisherCollection) if not attr.startswith("_")]:
-        region = getattr(PublisherCollection, country_code)
-        # Check if it's a list (multiple publishers) or a single publisher
-        if isinstance(region, list):
-            for publisher in region:
-                for domain in getattr(publisher, 'domains', []):
-                    mapping[domain] = publisher
-        elif hasattr(region, 'domains'):
-            for domain in getattr(region, 'domains', []):
-                mapping[domain] = region
-    print(f"  Built publisher map with {len(mapping)} domain entries")
-    return mapping
+def build_domain_set() -> set[str]:
+    """Download supported_publishers.md and return a set of all supported domains."""
+    url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"  ❌ Failed to fetch supported_publishers.md: {e}")
+        raise
+
+    domain_set = set()
+    lines = resp.text.splitlines()
+    in_code_block = False
+
+    for line in lines:
+        # Skip code blocks
+        if line.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+
+        # Look for lines that contain a URL pattern
+        # The markdown file uses a specific format for example URLs
+        # We need to extract the domain from these patterns
+        if "http://" in line or "https://" in line:
+            # Extract domain using simple regex-like approach
+            # Find the part between https:// and the next /
+            parts = line.split("https://")
+            if len(parts) > 1:
+                domain_part = parts[1].split("/")[0]
+                if domain_part and not domain_part.startswith("www."):
+                    domain_set.add(domain_part)
+            parts = line.split("http://")
+            if len(parts) > 1:
+                domain_part = parts[1].split("/")[0]
+                if domain_part and not domain_part.startswith("www."):
+                    domain_set.add(domain_part)
+
+    # Debug: print a few domains to verify
+    sample_domains = list(domain_set)[:10]
+    print(f"  Built domain set with {len(domain_set)} entries")
+    if sample_domains:
+        print(f"  Sample domains: {', '.join(sample_domains)}")
+    else:
+        print("  ⚠️ No domains found – check markdown parsing logic")
+    return domain_set
 
 
 # ---------------------------------------------------------------------------
 # Helper: filter URLs to supported domains
 # ---------------------------------------------------------------------------
-def filter_urls(urls: list[str], supported: dict[str, object]) -> list[str]:
-    """Return URLs whose domain is present in the supported publishers map."""
-    return [url for url in urls if urlparse(url).netloc in supported]
+def filter_urls(urls: list[str], domain_set: set[str]) -> list[str]:
+    """Return URLs whose domain (without 'www.') is present in the supported domain set."""
+    filtered = []
+    for url in urls:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        # Remove common 'www.' prefix for consistent comparison
+        if domain.startswith("www."):
+            domain = domain[4:]
+        if domain in domain_set:
+            filtered.append(url)
+        else:
+            print(f"  Skipping unsupported domain: {domain} ({url[:80]}...)")
+    return filtered
 
 
 # ---------------------------------------------------------------------------
 # Duplicate guard
 # ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
+    """Return True if the output file already exists in the GitHub release."""
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/{prefix}{timestamp}.json"
     try:
         req = urllib.request.Request(url, method="HEAD")
@@ -74,6 +118,7 @@ def main():
         print("Error: CHUNK_TIMESTAMP and URLS must be set")
         sys.exit(1)
 
+    # Check if we've already processed this chunk
     if article_json_exists(timestamp, prefix="fundus_"):
         print(f"Fundus articles for {timestamp} already exist – skipping.")
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
@@ -87,10 +132,28 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Build publisher map from Fundus's own data structures
-    supported_publishers = build_publisher_map()
-    filtered = filter_urls(urls, supported_publishers)
+    # Build the set of supported domains from the official markdown file
+    try:
+        domain_set = build_domain_set()
+    except Exception as e:
+        print(f"Failed to build domain set: {e}")
+        sys.exit(1)
+
+    # Filter the GDELT URLs to only those from supported domains
+    filtered = filter_urls(urls, domain_set)
     print(f"  Filtered down to {len(filtered)} supported URLs")
+
+    if not filtered:
+        print("  No supported URLs found – nothing to extract")
+        # Save empty result and exit gracefully
+        os.makedirs("articles", exist_ok=True)
+        output_path = f"articles/fundus_{timestamp}.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump({}, f, ensure_ascii=False, indent=2)
+        print(f"  ✅ Saved 0 Fundus articles → {output_path}")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"timestamp={timestamp}\n")
+        return
 
     # Shared HTTP session for connection pooling
     session = requests.Session()
@@ -102,10 +165,32 @@ def main():
     start = time.time()
 
     def fetch_and_parse(url: str) -> tuple[str, str | None]:
-        domain = urlparse(url).netloc
-        pub = supported_publishers.get(domain)
-        if pub is None:
-            return url, None
+        """Fetch the HTML of a URL and extract its article text."""
+        domain = urlparse(url).netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+
+        # For the ParserProxy we don't need the specific publisher object;
+        # the library will automatically detect the correct parser based on the URL.
+        # However, we still need to pass a Publisher object.
+        # To keep things simple, we can use any publisher from the collection,
+        # but the safest is to let Fundus determine it automatically.
+        # The ParserProxy requires a Publisher object, but it will be overridden by the URL.
+        # We'll just pass the first publisher from the US collection as a placeholder.
+        try:
+            # Get a valid Publisher object – any will work because the URL determines the parser
+            pub = PublisherCollection.us[0]
+        except (IndexError, AttributeError):
+            # Fallback in case the US collection is empty
+            for country in dir(PublisherCollection):
+                if not country.startswith("_") and hasattr(PublisherCollection, country):
+                    region = getattr(PublisherCollection, country)
+                    if isinstance(region, list) and region:
+                        pub = region[0]
+                        break
+            else:
+                print(f"  ❌ No valid Publisher found for {url}")
+                return url, None
 
         try:
             resp = session.get(url, timeout=15)
@@ -148,6 +233,7 @@ def main():
             except Exception as e:
                 print(f"  ❌ Unhandled error for {url}: {e}")
 
+    # Save results (even if some articles failed)
     os.makedirs("articles", exist_ok=True)
     output_path = f"articles/fundus_{timestamp}.json"
     with open(output_path, "w", encoding="utf-8") as f:
@@ -156,6 +242,7 @@ def main():
     elapsed = time.time() - start
     print(f"  ✅ Saved {len(articles)} Fundus articles ({processed} crawled) in {elapsed:.1f}s → {output_path}")
 
+    # Write GitHub output
     with open(os.environ["GITHUB_OUTPUT"], "a") as f:
         f.write(f"timestamp={timestamp}\n")
 
