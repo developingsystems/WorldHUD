@@ -26,51 +26,27 @@ from fundus.parser import ParserProxy
 # Build a set of supported domains from the official markdown file
 # ---------------------------------------------------------------------------
 def build_domain_set() -> set[str]:
-    """Download supported_publishers.md and return a set of all supported domains."""
-    url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
-    try:
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-    except Exception as e:
-        print(f"  ❌ Failed to fetch supported_publishers.md: {e}")
-        raise
-
+    """Build a set of supported domains from Fundus's internal data structures."""
     domain_set = set()
-    lines = resp.text.splitlines()
-    in_code_block = False
-
-    for line in lines:
-        # Skip code blocks
-        if line.startswith("```"):
-            in_code_block = not in_code_block
+    # Iterate through all country regions in PublisherCollection
+    for attr_name in dir(PublisherCollection):
+        if attr_name.startswith("_"):
             continue
-        if in_code_block:
-            continue
-
-        # Look for lines that contain a URL pattern
-        # The markdown file uses a specific format for example URLs
-        # We need to extract the domain from these patterns
-        if "http://" in line or "https://" in line:
-            # Extract domain using simple regex-like approach
-            # Find the part between https:// and the next /
-            parts = line.split("https://")
-            if len(parts) > 1:
-                domain_part = parts[1].split("/")[0]
-                if domain_part and not domain_part.startswith("www."):
-                    domain_set.add(domain_part)
-            parts = line.split("http://")
-            if len(parts) > 1:
-                domain_part = parts[1].split("/")[0]
-                if domain_part and not domain_part.startswith("www."):
-                    domain_set.add(domain_part)
-
-    # Debug: print a few domains to verify
-    sample_domains = list(domain_set)[:10]
+        region = getattr(PublisherCollection, attr_name)
+        # A region can be a single publisher or a list of publishers
+        publishers = region if isinstance(region, list) else [region]
+        for publisher in publishers:
+            # Access the internal domains attribute (not officially documented but stable)
+            if hasattr(publisher, '_domains'):
+                for domain in publisher._domains:
+                    # Remove 'www.' prefix and add to set
+                    clean_domain = domain.replace('www.', '')
+                    domain_set.add(clean_domain)
+    # Debug output
     print(f"  Built domain set with {len(domain_set)} entries")
-    if sample_domains:
-        print(f"  Sample domains: {', '.join(sample_domains)}")
-    else:
-        print("  ⚠️ No domains found – check markdown parsing logic")
+    sample = list(domain_set)[:10]
+    if sample:
+        print(f"  Sample domains: {', '.join(sample)}")
     return domain_set
 
 
