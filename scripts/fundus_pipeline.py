@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Final pipeline.
+"""Fundus article extraction for WorldHUD – Direct publisher parser pipeline.
 
-- Parses the raw HTML table to build a domain→publisher map.
-- Filters GDELT URLs by domain lookup.
-- Fetches HTML in parallel with realistic browser headers.
-- Extracts text using ParserProxy (auto‑detects publisher from URL).
+- Parses the raw HTML table to build domain → (publisher, country, class_name).
+- Dynamically imports the correct parser class for each domain.
+- Fetches HTML in parallel and extracts text using that parser.
 - Handles errors and saves partial results.
 """
 
@@ -12,6 +11,7 @@ import os
 import json
 import sys
 import time
+import importlib
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
@@ -20,16 +20,14 @@ import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import TooManyRedirects
 
-# Import Fundus – this loads all publishers and parsers automatically
-import fundus
 from fundus import PublisherCollection
-from fundus.parser import ParserProxy
 
 
 # ---------------------------------------------------------------------------
-# Build a domain → publisher map from the raw HTML file
+# Build a domain → (publisher, country_code, class_name) map
 # ---------------------------------------------------------------------------
-def build_domain_to_publisher_map() -> dict[str, object]:
+def build_domain_info_map() -> dict[str, tuple[object, str, str]]:
+    """Parse HTML table and return dict: domain -> (Publisher, country_code, class_name)."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
@@ -49,10 +47,9 @@ def build_domain_to_publisher_map() -> dict[str, object]:
                         return pub
             return None
 
-    domain_to_publisher = {}
+    domain_info = {}
     tables = soup.find_all("table")
     for table in tables:
-        # Extract country code from table class (e.g., 'at', 'us')
         country_code = None
         for cls in table.get('class', []):
             if cls in ['at', 'au', 'be', 'ca', 'ch', 'cn', 'cz', 'de', 'dk', 'es', 'fr',
@@ -86,14 +83,14 @@ def build_domain_to_publisher_map() -> dict[str, object]:
                 domain = domain[4:]
             publisher = get_publisher_by_class_name(country_group, class_name)
             if publisher:
-                domain_to_publisher[domain] = publisher
+                domain_info[domain] = (publisher, country_code, class_name)
 
-    print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
-    return domain_to_publisher
+    print(f"Built domain info map with {len(domain_info)} entries")
+    return domain_info
 
 
 # ---------------------------------------------------------------------------
-# Duplicate guard – check if output file already exists in GitHub release
+# Duplicate guard
 # ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/{prefix}{timestamp}.json"
@@ -109,6 +106,8 @@ def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
 # Main pipeline
 # ---------------------------------------------------------------------------
 def main():
+    os.makedirs("articles", exist_ok=True)
+
     timestamp = os.environ.get("CHUNK_TIMESTAMP")
     urls_json = os.environ.get("URLS")
 
@@ -129,21 +128,20 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Build the domain → publisher map
-    domain_to_publisher = build_domain_to_publisher_map()
+    domain_info = build_domain_info_map()
 
-    # Filter URLs by supported domains
-    supported_urls = []
+    # Filter and prepare list of (url, country_code, class_name, publisher)
+    supported = []
     for url in urls:
         domain = urlparse(url).netloc.lower()
         if domain.startswith("www."):
             domain = domain[4:]
-        if domain in domain_to_publisher:
-            supported_urls.append(url)
+        if domain in domain_info:
+            publisher, country_code, class_name = domain_info[domain]
+            supported.append((url, country_code, class_name, publisher))
 
-    print(f"Filtered down to {len(supported_urls)} supported URLs")
-    if not supported_urls:
-        os.makedirs("articles", exist_ok=True)
+    print(f"Filtered down to {len(supported)} supported URLs")
+    if not supported:
         output_path = f"articles/fundus_{timestamp}.json"
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump({}, f, ensure_ascii=False, indent=2)
@@ -152,7 +150,6 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Setup session with realistic browser headers
     session = requests.Session()
     session.max_redirects = 5
     session.headers.update({
@@ -169,50 +166,53 @@ def main():
     processed = 0
     start_time = time.time()
 
-def fetch_and_parse(url: str) -> tuple[str, str | None]:
-    domain = urlparse(url).netloc.lower()
-    if domain.startswith("www."):
-        domain = domain[4:]
-
-    # Get the Publisher object from your map (built by build_domain_to_publisher_map)
-    publisher = domain_to_publisher.get(domain)
-    if publisher is None:
-        return url, None
-
-    # Fetch the article HTML
-    try:
-        resp = session.get(url, timeout=15)
-        resp.raise_for_status()
-        html = resp.text
-    except TooManyRedirects:
-        print(f"🚫 Redirect loop: {url}")
-        return url, None
-    except Exception as e:
-        print(f"❌ Network error for {url}: {e}")
-        return url, None
-
-    # Get the correct parser class for this publisher and parse the article.
-    # This is the missing link you've been looking for.
-    parser_class = publisher.parser
-    parser = parser_class()
-    try:
-        article = parser.parse(html, url)
-        if article.body and article.body.text:
-            return url, article.body.text
-        else:
-            print(f"⚠️ Extraction failed for {url}: no extractable text")
+    def fetch_and_parse(url: str, country_code: str, class_name: str) -> tuple[str, str | None]:
+        # Dynamic import of the correct parser class
+        # Module path: fundus.parser.publishers.{country_code}.{class_name}Parser
+        module_path = f"fundus.parser.publishers.{country_code}.{class_name}"
+        parser_class_name = f"{class_name}Parser"
+        try:
+            module = importlib.import_module(module_path)
+            parser_class = getattr(module, parser_class_name)
+        except (ImportError, AttributeError) as e:
+            print(f"❌ Could not import parser for {class_name} in {country_code}: {e}")
             return url, None
-    except Exception as e:
-        print(f"❌ Parsing error for {url}: {e}")
-        return url, None
+
+        # Fetch HTML
+        try:
+            resp = session.get(url, timeout=15)
+            resp.raise_for_status()
+            html = resp.text
+        except TooManyRedirects:
+            print(f"🚫 Redirect loop: {url}")
+            return url, None
+        except Exception as e:
+            print(f"❌ Network error for {url}: {e}")
+            return url, None
+
+        # Instantiate and parse
+        try:
+            parser = parser_class()
+            article = parser.parse(html, url)
+            if article.body and article.body.text:
+                return url, article.body.text
+            else:
+                print(f"⚠️ Extraction failed for {url}: no extractable text")
+                return url, None
+        except Exception as e:
+            print(f"❌ Parsing error for {url}: {e}")
+            return url, None
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_url = {executor.submit(fetch_and_parse, url): url for url in supported_urls}
+        future_to_url = {
+            executor.submit(fetch_and_parse, url, country_code, class_name): url
+            for url, country_code, class_name, _ in supported
+        }
         for future in as_completed(future_to_url):
             url = future_to_url[future]
             processed += 1
             if processed % 10 == 0:
-                print(f"Processed {processed}/{len(supported_urls)} articles so far…")
+                print(f"Processed {processed}/{len(supported)} articles so far…")
 
             try:
                 returned_url, text = future.result()
