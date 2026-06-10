@@ -29,7 +29,6 @@ from fundus.parser import ParserProxy
 # Build a domain → publisher map from the raw HTML file
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Parse the HTML tables in the raw supported_publishers.md file."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
@@ -39,7 +38,7 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         print(f"Error fetching publisher list: {e}")
         return {}
 
-    # Map class name → Publisher object
+    # ---------- Build class_to_publisher ----------
     class_to_publisher = {}
     for country_code in dir(PublisherCollection):
         if country_code.startswith("_"):
@@ -47,62 +46,73 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         group = getattr(PublisherCollection, country_code)
         publishers = group if isinstance(group, list) else [group]
         for publisher in publishers:
-            class_to_publisher[publisher.__name__] = publisher
+            # Try .name first (common in Fundus)
+            name = getattr(publisher, 'name', None)
+            if name is None:
+                name = getattr(publisher, '__name__', None)
+            if name:
+                class_to_publisher[name] = publisher
+            else:
+                # Last resort: use str(publisher) or repr
+                name = str(publisher).split()[0] if ' ' in str(publisher) else str(publisher)
+                class_to_publisher[name] = publisher
 
+    # Debug: print first 20 keys from class_to_publisher
+    print("DEBUG: class_to_publisher sample keys (first 20):")
+    sample_keys = list(class_to_publisher.keys())[:20]
+    for k in sample_keys:
+        print(f"    {k}")
+
+    # ---------- Parse HTML tables ----------
     domain_to_publisher = {}
     tables = soup.find_all("table")
     print(f"DEBUG: Found {len(tables)} tables")
-    
+    row_count = 0
+    mapped_count = 0
+    missing_class_names = set()
+
     for table_idx, table in enumerate(tables):
         rows = table.find_all("tr")
-        print(f"DEBUG: Table {table_idx} has {len(rows)} rows")
-        for row_idx, row in enumerate(rows):
+        for row in rows:
             cells = row.find_all("td")
             if len(cells) < 3:
                 continue
-            
-            # Debug: print first few rows of first table
-            if table_idx == 0 and row_idx < 3:
-                print(f"DEBUG: Row {row_idx}, cell0 HTML: {cells[0]}")
-                print(f"DEBUG: Row {row_idx}, cell2 HTML: {cells[2]}")
-            
-            # Class name is inside <code> in first cell
             code_tag = cells[0].find("code")
             if not code_tag:
-                if table_idx == 0 and row_idx < 3:
-                    print(f"DEBUG: Row {row_idx} - No <code> tag in first cell")
                 continue
             class_name = code_tag.get_text(strip=True)
-            if table_idx == 0 and row_idx < 3:
-                print(f"DEBUG: Row {row_idx} - Extracted class_name: '{class_name}'")
-            
-            # URL is in <a href> in third cell
             a_tag = cells[2].find("a")
             if not a_tag:
-                if table_idx == 0 and row_idx < 3:
-                    print(f"DEBUG: Row {row_idx} - No <a> tag in third cell")
                 continue
             href = a_tag.get("href", "")
             if not href.startswith("https://"):
                 continue
-            # Extract domain from href
             domain = href.split("//")[1].split("/")[0].lower()
             if domain.startswith("www."):
                 domain = domain[4:]
-            
-            # Check if publisher exists
+
             publisher = class_to_publisher.get(class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-                if table_idx == 0 and row_idx < 3:
+                mapped_count += 1
+                # Print first 10 successful mappings
+                if mapped_count <= 10:
                     print(f"DEBUG: Mapped {domain} -> {class_name}")
             else:
-                if table_idx == 0 and row_idx < 3:
-                    print(f"DEBUG: class_name '{class_name}' not found in class_to_publisher")
-    
+                missing_class_names.add(class_name)
+                # Print first 10 missing class names
+                if len(missing_class_names) <= 10:
+                    print(f"DEBUG: Missing class_name: {class_name}")
+
+            row_count += 1
+
+    print(f"DEBUG: Total rows processed: {row_count}")
+    print(f"DEBUG: Successful mappings: {mapped_count}")
+    if missing_class_names:
+        print(f"DEBUG: Missing class_names (first 10): {list(missing_class_names)[:10]}")
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
     if len(domain_to_publisher) == 0:
-        print("  [Diagnostic] Domain map is empty. Check HTML table parsing.")
+        print("  [Diagnostic] Domain map is empty. Check class_to_publisher keys vs extracted class names.")
     return domain_to_publisher
 
 
