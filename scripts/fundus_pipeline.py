@@ -169,32 +169,40 @@ def main():
     processed = 0
     start_time = time.time()
 
-    def fetch_and_parse(url: str, publisher) -> tuple[str, str | None]:
-        # Fetch HTML
-        try:
-            resp = session.get(url, timeout=15)
-            resp.raise_for_status()
-            html = resp.text
-        except TooManyRedirects:
-            print(f"🚫 Redirect loop: {url}")
-            return url, None
-        except Exception as e:
-            print(f"❌ Network error for {url}: {e}")
-            return url, None
+def fetch_and_parse(url: str, publisher) -> tuple[str, str | None]:
+    try:
+        resp = session.get(url, timeout=15)
+        resp.raise_for_status()
+        html = resp.text
+    except Exception as e:
+        print(f"❌ Network error for {url}: {e}")
+        return url, None
 
-        # Get the parser class from the Publisher object and parse
-        try:
-            parser_class = publisher.parser   # This is the key!
-            parser = parser_class()
-            article = parser.parse(html, url)
-            if article.body and article.body.text:
-                return url, article.body.text
+    try:
+        parser_class = publisher.parser
+        parser = parser_class()
+        result = parser.parse(html, url)   # result can be an Article or a dict
+        # Handle both object and dict
+        if hasattr(result, 'body') and result.body and result.body.text:
+            return url, result.body.text
+        elif isinstance(result, dict):
+            # Try common keys
+            body = result.get('body')
+            if body and isinstance(body, dict):
+                text = body.get('text')
+                if text:
+                    return url, text
+            elif body and isinstance(body, str):
+                return url, body
             else:
-                print(f"⚠️ Extraction failed for {url}: no text")
+                print(f"⚠️ Unexpected dict structure for {url}: {list(result.keys())}")
                 return url, None
-        except Exception as e:
-            print(f"❌ Parsing error for {url}: {e}")
+        else:
+            print(f"⚠️ No text for {url}")
             return url, None
+    except Exception as e:
+        print(f"❌ Parsing error for {url}: {e}")
+        return url, None
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_url = {executor.submit(fetch_and_parse, url, pub): url for url, pub in supported}
