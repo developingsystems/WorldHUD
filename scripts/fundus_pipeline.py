@@ -29,7 +29,6 @@ from fundus.parser import ParserProxy
 # Build a domain → publisher map from the raw HTML file
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Parse the HTML tables in the raw supported_publishers.md file."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
@@ -50,33 +49,37 @@ def build_domain_to_publisher_map() -> dict[str, object]:
             class_to_publisher[publisher.__name__] = publisher
 
     domain_to_publisher = {}
-    # Find all tables with class starting with "publishers"
-    tables = soup.find_all("table", class_=re.compile(r"^publishers"))
+    # Find all tables – they have class like "publishers at", "publishers au", etc.
+    tables = soup.find_all("table")
+    print(f"DEBUG: Found {len(tables)} tables on the page")
     for table in tables:
-        for row in table.find_all("tr"):
+        # Optionally print table class
+        print(f"DEBUG: Table class: {table.get('class')}")
+        rows = table.find_all("tr")
+        print(f"DEBUG: Table has {len(rows)} rows")
+        for row in rows:
             cells = row.find_all("td")
             if len(cells) < 3:
                 continue
-            # Class name is inside <code> in first cell
+            # First cell: <code> with class name
             code_tag = cells[0].find("code")
             if not code_tag:
                 continue
             class_name = code_tag.get_text(strip=True)
-            # URL is in <a href> in third cell
+            # Third cell: <a> with href
             a_tag = cells[2].find("a")
             if not a_tag:
                 continue
             href = a_tag.get("href", "")
             if not href.startswith("https://"):
                 continue
-            # Extract domain from href
             domain = href.split("//")[1].split("/")[0].lower()
             if domain.startswith("www."):
                 domain = domain[4:]
             publisher = class_to_publisher.get(class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-
+                print(f"DEBUG: Mapped {domain} -> {class_name}")
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
     if len(domain_to_publisher) == 0:
         print("  [Diagnostic] Domain map is empty. Check HTML table parsing.")
