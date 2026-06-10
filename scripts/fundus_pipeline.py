@@ -28,30 +28,46 @@ from fundus.parser import ParserProxy
 # Build a domain → Publisher mapping directly from Fundus
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Builds a mapping from domain (e.g., 'nytimes.com') to its Fundus Publisher object."""
+    """Parse supported_publishers.md to get domain→publisher mapping."""
+    import re
+    import requests
+    from fundus import PublisherCollection
+
+    url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
+    response = requests.get(url, timeout=15)
+    response.raise_for_status()
+
     domain_to_publisher = {}
-    # Iterate through all country groups (e.g., 'us', 'de')
-    for attr_name in dir(PublisherCollection):
-        if attr_name.startswith("_"):
-            continue  # Skip private attributes
-        group = getattr(PublisherCollection, attr_name)
-        publishers = group if isinstance(group, list) else [group]
-        for publisher in publishers:
-            # Attempt to get the domain(s) from the publisher object
-            domains = []
-            # Try to get domains directly from the '_domains' attribute
-            if hasattr(publisher, '_domains') and publisher._domains:
-                domains = publisher._domains
-            # If not found, try to get them from the '_source' attribute
-            elif hasattr(publisher, '_source') and hasattr(publisher._source, 'domains'):
-                domains = publisher._source.domains
-            # If still not found, try to get a single domain from a 'domain' attribute
-            elif hasattr(publisher, 'domain') and publisher.domain:
-                domains = [publisher.domain]
-            # Process each domain found
-            for domain in domains:
-                clean_domain = domain.lower().replace('www.', '')
-                domain_to_publisher[clean_domain] = publisher
+    current_region = None
+
+    for line in response.text.splitlines():
+        line = line.strip()
+        if line.startswith("## "):
+            current_region = line[3:].strip().lower()
+        elif line.startswith("- **") and current_region:
+            # Extract publisher name and domains
+            # Format: "- **Publisher Name** (domain1.com, domain2.org)"
+            match = re.match(r"- \*\*(.+?)\*\* \((.+?)\)", line)
+            if match:
+                pub_name = match.group(1)
+                domains_str = match.group(2)
+                domains = [d.strip() for d in domains_str.split(",")]
+
+                # Find the corresponding Publisher object
+                region = getattr(PublisherCollection, current_region, None)
+                if region:
+                    # region is a dict-like object; iterate to find the publisher
+                    for publisher in region:
+                        if publisher.__name__ == pub_name:
+                            for domain in domains:
+                                clean_domain = domain.lower().replace('www.', '')
+                                domain_to_publisher[clean_domain] = publisher
+                            break
+
+    print(f"  Built domain→publisher map with {len(domain_to_publisher)} entries")
+    sample = list(domain_to_publisher.keys())[:10]
+    if sample:
+        print(f"  Sample domains: {', '.join(sample)}")
     return domain_to_publisher
 
 
@@ -177,13 +193,12 @@ def main():
 
 
 if __name__ == "__main__":
-    print("Testing mapping...")
-    test_mapping = build_domain_to_publisher_map()
-    print(f"Map size: {len(test_mapping)}")
-    # Print the first 5 items
-    for i, (domain, pub) in enumerate(test_mapping.items()):
+    # --- Test the mapping builder ---
+    test_map = build_domain_to_publisher_map()
+    print(f"Map size: {len(test_map)}")
+    for i, (domain, pub) in enumerate(test_map.items()):
         print(f"  {domain} -> {pub}")
         if i >= 4:
             break
-    # Your main() call
+    # --- Then run main ---
     main()
