@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Final working pipeline.
+"""Fundus article extraction for WorldHUD – Parser-based pipeline.
 
-- Parses the raw HTML table to build domain→publisher map.
+- Parses the raw HTML table to build a domain → publisher map.
 - Filters GDELT URLs by domain lookup.
-- Fetches HTML in parallel with realistic browser headers.
-- Extracts text using the correct Parser class.
-- Handles errors and saves partial results.
+- Fetches HTML in parallel and extracts text with per-publisher Parsers.
+- Handles redirect loops, timeouts, and other errors gracefully.
+- Saves partial results.
 """
 
 import os
 import json
 import sys
 import time
+import re
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
@@ -20,13 +21,15 @@ import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import TooManyRedirects
 
-from fundus import PublisherCollection, Parser  # ✅ Correct import
+from fundus import PublisherCollection
+from fundus.parser import ParserProxy  # Correct import for the ParserProxy
 
 
 # ---------------------------------------------------------------------------
 # Build a domain → publisher map from the raw HTML file
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
+    """Parse the HTML tables in the raw supported_publishers.md file."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
@@ -84,13 +87,16 @@ def build_domain_to_publisher_map() -> dict[str, object]:
             publisher = get_publisher_by_class_name(country_group, class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
+                # Print first 10 successful mappings
+                if len(domain_to_publisher) <= 10:
+                    print(f"DEBUG: Mapped {domain} -> {class_name}")
 
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
     return domain_to_publisher
 
 
 # ---------------------------------------------------------------------------
-# Duplicate guard
+# Duplicate guard – check if output file already exists in GitHub release
 # ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/{prefix}{timestamp}.json"
@@ -126,9 +132,10 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
+    # Build the domain → publisher map
     domain_to_publisher = build_domain_to_publisher_map()
 
-    # Filter URLs
+    # Filter URLs by supported domains
     supported_urls = []
     for url in urls:
         domain = urlparse(url).netloc.lower()
@@ -148,7 +155,7 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Setup session with realistic browser headers
+    # Setup for parallel fetching
     session = requests.Session()
     session.max_redirects = 5
     session.headers.update({
@@ -183,8 +190,9 @@ def main():
             print(f"❌ Network error for {url}: {e}")
             return url, None
 
-        # ✅ Use the correct Parser class (not ParserProxy)
-        parser = Parser(publisher)
+        # Using the ParserProxy correctly
+        # The ParserProxy is designed to be instantiated with a publisher instance.
+        parser = ParserProxy(publisher)
         try:
             article = parser.parse(resp.text, url)
             if article.body and article.body.text:
