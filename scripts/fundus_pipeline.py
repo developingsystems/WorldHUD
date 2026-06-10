@@ -55,15 +55,20 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         line = lines[i].strip()
         # Look for a line that starts and ends with a backtick (the class name)
         if line.startswith("`") and line.endswith("`"):
-            class_name = line[1:-1]  # Remove the backticks
+            class_name = line[1:-1]
+            print(f"DEBUG: Found class name: {class_name}")
 
-            # The domain line is the very next line (i + 1)
-            if i + 1 < len(lines):
-                domain_line = lines[i + 1].strip()
+            # The domain line is 2 lines below the class name line (index i+2)
+            if i + 2 < len(lines):
+                domain_line = lines[i + 2].strip()
+                print(f"DEBUG: Domain line (raw): '{domain_line}'")
+                
                 # Match the pattern: 【数字† domain1 †domain2】
                 match = re.search(r"【\d+†\s*([^\s†]+)", domain_line)
                 if match:
                     raw_domain = match.group(1)
+                    print(f"DEBUG: Extracted raw domain: '{raw_domain}'")
+                    
                     domain = raw_domain.lower()
                     if domain.startswith("www."):
                         domain = domain[4:]
@@ -71,6 +76,13 @@ def build_domain_to_publisher_map() -> dict[str, object]:
                     publisher = class_to_publisher.get(class_name)
                     if publisher:
                         domain_to_publisher[domain] = publisher
+                        print(f"DEBUG: Added mapping: '{domain}' -> {class_name}")
+                    else:
+                        print(f"DEBUG: No publisher found for class: {class_name}")
+                else:
+                    print(f"DEBUG: No regex match on domain line: '{domain_line}'")
+            else:
+                print(f"DEBUG: Not enough lines after class name (i={i})")
         i += 1
 
     print(f"Built domain->publisher map with {len(domain_to_publisher)} entries")
