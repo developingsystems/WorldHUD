@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Parser-based pipeline.
+"""Fundus article extraction for WorldHUD – Final robust pipeline.
 
-- Downloads the official supported_publishers.md file at runtime.
-- Filters GDELT URLs to only those from Fundus‑supported domains.
-- Fetches HTML in parallel and extracts text with per‑publisher Parsers.
+- Builds domain → Publisher map directly from PublisherCollection (using .domains).
+- Filters GDELT URLs by domain lookup (O(1) per URL).
+- Fetches HTML in parallel with a shared session.
+- Uses ParserProxy with the correct Publisher for each URL.
 - Handles redirect loops, timeouts, and other errors gracefully.
 - Saves partial results even if some URLs fail.
 """
@@ -22,58 +23,44 @@ from requests.exceptions import TooManyRedirects
 from fundus import PublisherCollection
 from fundus.parser import ParserProxy
 
+
 # ---------------------------------------------------------------------------
-# Build a set of supported domains from the official markdown file
+# Build a domain → Publisher mapping directly from Fundus
 # ---------------------------------------------------------------------------
-def build_domain_set() -> set[str]:
-    """Build a set of supported domains from Fundus's internal data structures."""
-    domain_set = set()
-    # Iterate through all country regions in PublisherCollection
+def build_domain_to_publisher_map() -> dict[str, object]:
+    """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object."""
+    domain_to_publisher = {}
+
+    # Get all public attributes of PublisherCollection (e.g., 'us', 'de', 'uk', ...)
     for attr_name in dir(PublisherCollection):
         if attr_name.startswith("_"):
             continue
-        region = getattr(PublisherCollection, attr_name)
-        # A region can be a single publisher or a list of publishers
-        publishers = region if isinstance(region, list) else [region]
+        group = getattr(PublisherCollection, attr_name)
+
+        # A group can be a single Publisher or a list of Publishers
+        publishers = group if isinstance(group, list) else [group]
+
         for publisher in publishers:
-            # Access the internal domains attribute (not officially documented but stable)
-            if hasattr(publisher, '_domains'):
-                for domain in publisher._domains:
-                    # Remove 'www.' prefix and add to set
-                    clean_domain = domain.replace('www.', '')
-                    domain_set.add(clean_domain)
-    # Debug output
-    print(f"  Built domain set with {len(domain_set)} entries")
-    sample = list(domain_set)[:10]
+            # The .domains attribute is public and documented
+            for domain in getattr(publisher, "domains", []):
+                # Normalize domain (remove 'www.' if present)
+                clean_domain = domain.lower()
+                if clean_domain.startswith("www."):
+                    clean_domain = clean_domain[4:]
+                domain_to_publisher[clean_domain] = publisher
+
+    print(f"  Built domain→publisher map with {len(domain_to_publisher)} entries")
+    # Show a few sample domains for debugging
+    sample = list(domain_to_publisher.keys())[:10]
     if sample:
         print(f"  Sample domains: {', '.join(sample)}")
-    return domain_set
+    return domain_to_publisher
 
 
 # ---------------------------------------------------------------------------
-# Helper: filter URLs to supported domains
-# ---------------------------------------------------------------------------
-def filter_urls(urls: list[str], domain_set: set[str]) -> list[str]:
-    """Return URLs whose domain (without 'www.') is present in the supported domain set."""
-    filtered = []
-    for url in urls:
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
-        # Remove common 'www.' prefix for consistent comparison
-        if domain.startswith("www."):
-            domain = domain[4:]
-        if domain in domain_set:
-            filtered.append(url)
-        else:
-            print(f"  Skipping unsupported domain: {domain} ({url[:80]}...)")
-    return filtered
-
-
-# ---------------------------------------------------------------------------
-# Duplicate guard
+# Duplicate guard – check if output file already exists in GitHub release
 # ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
-    """Return True if the output file already exists in the GitHub release."""
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/{prefix}{timestamp}.json"
     try:
         req = urllib.request.Request(url, method="HEAD")
@@ -94,7 +81,7 @@ def main():
         print("Error: CHUNK_TIMESTAMP and URLS must be set")
         sys.exit(1)
 
-    # Check if we've already processed this chunk
+    # Skip if already processed this chunk
     if article_json_exists(timestamp, prefix="fundus_"):
         print(f"Fundus articles for {timestamp} already exist – skipping.")
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
@@ -108,28 +95,8 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Build the set of supported domains from the official markdown file
-    try:
-        domain_set = build_domain_set()
-    except Exception as e:
-        print(f"Failed to build domain set: {e}")
-        sys.exit(1)
-
-    # Filter the GDELT URLs to only those from supported domains
-    filtered = filter_urls(urls, domain_set)
-    print(f"  Filtered down to {len(filtered)} supported URLs")
-
-    if not filtered:
-        print("  No supported URLs found – nothing to extract")
-        # Save empty result and exit gracefully
-        os.makedirs("articles", exist_ok=True)
-        output_path = f"articles/fundus_{timestamp}.json"
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump({}, f, ensure_ascii=False, indent=2)
-        print(f"  ✅ Saved 0 Fundus articles → {output_path}")
-        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-            f.write(f"timestamp={timestamp}\n")
-        return
+    # Build the domain → Publisher map once
+    domain_to_publisher = build_domain_to_publisher_map()
 
     # Shared HTTP session for connection pooling
     session = requests.Session()
@@ -138,35 +105,19 @@ def main():
     MAX_WORKERS = 8
     articles: dict[str, str] = {}
     processed = 0
-    start = time.time()
+    start_time = time.time()
 
     def fetch_and_parse(url: str) -> tuple[str, str | None]:
-        """Fetch the HTML of a URL and extract its article text."""
+        """Fetch HTML and extract article text for a single URL."""
+        # Normalise domain
         domain = urlparse(url).netloc.lower()
         if domain.startswith("www."):
             domain = domain[4:]
 
-        # For the ParserProxy we don't need the specific publisher object;
-        # the library will automatically detect the correct parser based on the URL.
-        # However, we still need to pass a Publisher object.
-        # To keep things simple, we can use any publisher from the collection,
-        # but the safest is to let Fundus determine it automatically.
-        # The ParserProxy requires a Publisher object, but it will be overridden by the URL.
-        # We'll just pass the first publisher from the US collection as a placeholder.
-        try:
-            # Get a valid Publisher object – any will work because the URL determines the parser
-            pub = PublisherCollection.us[0]
-        except (IndexError, AttributeError):
-            # Fallback in case the US collection is empty
-            for country in dir(PublisherCollection):
-                if not country.startswith("_") and hasattr(PublisherCollection, country):
-                    region = getattr(PublisherCollection, country)
-                    if isinstance(region, list) and region:
-                        pub = region[0]
-                        break
-            else:
-                print(f"  ❌ No valid Publisher found for {url}")
-                return url, None
+        publisher = domain_to_publisher.get(domain)
+        if publisher is None:
+            # This should not happen if we pre-filter, but just in case
+            return url, None
 
         try:
             resp = session.get(url, timeout=15)
@@ -178,7 +129,7 @@ def main():
             print(f"  ❌ Network error for {url}: {e}")
             return url, None
 
-        parser = ParserProxy(pub)
+        parser = ParserProxy(publisher)
         try:
             article = parser.parse(resp.text, url)
             if article.body and article.body.text:
@@ -195,11 +146,15 @@ def main():
             print(f"  ❌ Parsing error for {url}: {e}")
             return url, None
 
+    # Submit all URLs to the thread pool
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_url = {executor.submit(fetch_and_parse, url): url for url in filtered}
+        future_to_url = {executor.submit(fetch_and_parse, url): url for url in urls}
         for future in as_completed(future_to_url):
             url = future_to_url[future]
             processed += 1
+            if processed % 10 == 0:
+                print(f"  Processed {processed}/{len(urls)} articles so far…")
+
             try:
                 returned_url, text = future.result()
                 if text:
@@ -209,16 +164,16 @@ def main():
             except Exception as e:
                 print(f"  ❌ Unhandled error for {url}: {e}")
 
-    # Save results (even if some articles failed)
+    # Save results (even if some URLs failed)
     os.makedirs("articles", exist_ok=True)
     output_path = f"articles/fundus_{timestamp}.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(articles, f, ensure_ascii=False, indent=2)
 
-    elapsed = time.time() - start
-    print(f"  ✅ Saved {len(articles)} Fundus articles ({processed} crawled) in {elapsed:.1f}s → {output_path}")
+    elapsed = time.time() - start_time
+    print(f"  ✅ Saved {len(articles)} Fundus articles ({processed} attempted) in {elapsed:.1f}s → {output_path}")
 
-    # Write GitHub output
+    # Write GitHub Actions output
     with open(os.environ["GITHUB_OUTPUT"], "a") as f:
         f.write(f"timestamp={timestamp}\n")
 
