@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Final robust pipeline.
+"""Fundus article extraction for WorldHUD – Hybrid robust pipeline.
 
-- Builds domain → Publisher map directly from PublisherCollection (using .domains).
+- Builds a domain → Publisher map by iterating over the PublisherCollection.
 - Filters GDELT URLs by domain lookup (O(1) per URL).
 - Fetches HTML in parallel with a shared session.
 - Uses ParserProxy with the correct Publisher for each URL.
@@ -23,58 +23,50 @@ from requests.exceptions import TooManyRedirects
 from fundus import PublisherCollection
 from fundus.parser import ParserProxy
 
-
 # ---------------------------------------------------------------------------
-# Build a domain → Publisher mapping directly from Fundus
+# Helper: Build domain → Publisher map by iterating PublisherCollection
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Parse supported_publishers.md to get domain→publisher mapping."""
-    import re
-    import requests
-    from fundus import PublisherCollection
+    """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object.
 
-    url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
-
+    This function extracts the domains from each Publisher in the collection
+    using the internal `_domains` attribute (the only reliable source of this
+    information in the current Fundus version). Because the attribute name is
+    private, we wrap the access in a try/except block to remain robust.
+    """
     domain_to_publisher = {}
-    current_region = None
 
-    for line in response.text.splitlines():
-        line = line.strip()
-        if line.startswith("## "):
-            current_region = line[3:].strip().lower()
-        elif line.startswith("- **") and current_region:
-            # Extract publisher name and domains
-            # Format: "- **Publisher Name** (domain1.com, domain2.org)"
-            match = re.match(r"- \*\*(.+?)\*\* \((.+?)\)", line)
-            if match:
-                pub_name = match.group(1)
-                domains_str = match.group(2)
-                domains = [d.strip() for d in domains_str.split(",")]
+    # Iterate through all publishers in the collection
+    for publisher in PublisherCollection:
+        try:
+            # The domain information lives inside the Publisher's `_domains`
+            # attribute. It is a list of domain strings (e.g. ['nytimes.com']).
+            domains = getattr(publisher, '_domains', [])
+            for domain in domains:
+                # Normalise the domain (remove 'www.')
+                clean_domain = domain.lower()
+                if clean_domain.startswith('www.'):
+                    clean_domain = clean_domain[4:]
+                domain_to_publisher[clean_domain] = publisher
+        except Exception:
+            # If a particular publisher cannot be processed, skip it
+            # (the loop continues with the next publisher).
+            continue
 
-                # Find the corresponding Publisher object
-                region = getattr(PublisherCollection, current_region, None)
-                if region:
-                    # region is a dict-like object; iterate to find the publisher
-                    for publisher in region:
-                        if publisher.__name__ == pub_name:
-                            for domain in domains:
-                                clean_domain = domain.lower().replace('www.', '')
-                                domain_to_publisher[clean_domain] = publisher
-                            break
-
+    # Debug output – verify the map was built correctly
     print(f"  Built domain→publisher map with {len(domain_to_publisher)} entries")
     sample = list(domain_to_publisher.keys())[:10]
     if sample:
         print(f"  Sample domains: {', '.join(sample)}")
+
     return domain_to_publisher
 
 
 # ---------------------------------------------------------------------------
-# Duplicate guard – check if output file already exists in GitHub release
+# Helper: Duplicate guard – check if output file already exists in GitHub release
 # ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
+    """Return True if the output file already exists in the GitHub release."""
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/{prefix}{timestamp}.json"
     try:
         req = urllib.request.Request(url, method="HEAD")
@@ -95,7 +87,7 @@ def main():
         print("Error: CHUNK_TIMESTAMP and URLS must be set")
         sys.exit(1)
 
-    # Skip if already processed this chunk
+    # Skip if this chunk has already been processed
     if article_json_exists(timestamp, prefix="fundus_"):
         print(f"Fundus articles for {timestamp} already exist – skipping.")
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
@@ -109,10 +101,33 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Build the domain → Publisher map once
+    # ---------- 1. Build the domain → publisher map ----------
     domain_to_publisher = build_domain_to_publisher_map()
 
-    # Shared HTTP session for connection pooling
+    # ---------- 2. Filter URLs by supported domains ----------
+    supported_urls = []
+    for url in urls:
+        domain = urlparse(url).netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        if domain in domain_to_publisher:
+            supported_urls.append(url)
+        else:
+            print(f"  Skipping unsupported domain: {domain} ({url[:80]}...)")
+
+    print(f"  Filtered down to {len(supported_urls)} supported URLs")
+    if not supported_urls:
+        # No supported URLs – exit gracefully
+        os.makedirs("articles", exist_ok=True)
+        output_path = f"articles/fundus_{timestamp}.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump({}, f, ensure_ascii=False, indent=2)
+        print(f"  ✅ Saved 0 Fundus articles → {output_path}")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"timestamp={timestamp}\n")
+        return
+
+    # ---------- 3. Prepare for parallel fetching ----------
     session = requests.Session()
     session.max_redirects = 5
 
@@ -122,16 +137,15 @@ def main():
     start_time = time.time()
 
     def fetch_and_parse(url: str) -> tuple[str, str | None]:
-        """Fetch HTML and extract article text for a single URL."""
-        # Normalise domain
+        """Fetch the HTML of a URL and extract its article text."""
+        # Get the domain and its corresponding Publisher
         domain = urlparse(url).netloc.lower()
         if domain.startswith("www."):
             domain = domain[4:]
 
         publisher = domain_to_publisher.get(domain)
         if publisher is None:
-            # This should not happen if we pre-filter, but just in case
-            return url, None
+            return url, None  # Should not happen after filtering
 
         try:
             resp = session.get(url, timeout=15)
@@ -143,12 +157,14 @@ def main():
             print(f"  ❌ Network error for {url}: {e}")
             return url, None
 
+        # Create a parser for the specific publisher
         parser = ParserProxy(publisher)
         try:
             article = parser.parse(resp.text, url)
             if article.body and article.body.text:
                 return url, article.body.text
             else:
+                # Provide a reason why extraction failed
                 reasons = []
                 if not article.body:
                     reasons.append("no body")
@@ -160,14 +176,14 @@ def main():
             print(f"  ❌ Parsing error for {url}: {e}")
             return url, None
 
-    # Submit all URLs to the thread pool
+    # ---------- 4. Process URLs concurrently ----------
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_url = {executor.submit(fetch_and_parse, url): url for url in urls}
+        future_to_url = {executor.submit(fetch_and_parse, url): url for url in supported_urls}
         for future in as_completed(future_to_url):
             url = future_to_url[future]
             processed += 1
             if processed % 10 == 0:
-                print(f"  Processed {processed}/{len(urls)} articles so far…")
+                print(f"  Processed {processed}/{len(supported_urls)} articles so far…")
 
             try:
                 returned_url, text = future.result()
@@ -175,10 +191,12 @@ def main():
                     articles[returned_url] = text
                     short = url[:80] + "…" if len(url) > 80 else url
                     print(f"  ✅ [{processed}] Extracted: {short}")
+                else:
+                    print(f"  ⚠️ [{processed}] No text extracted: {url}")
             except Exception as e:
-                print(f"  ❌ Unhandled error for {url}: {e}")
+                print(f"  ❌ [{processed}] Unhandled error for {url}: {e}")
 
-    # Save results (even if some URLs failed)
+    # ---------- 5. Save results ----------
     os.makedirs("articles", exist_ok=True)
     output_path = f"articles/fundus_{timestamp}.json"
     with open(output_path, "w", encoding="utf-8") as f:
@@ -193,12 +211,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # --- Test the mapping builder ---
-    test_map = build_domain_to_publisher_map()
-    print(f"Map size: {len(test_map)}")
-    for i, (domain, pub) in enumerate(test_map.items()):
-        print(f"  {domain} -> {pub}")
-        if i >= 4:
-            break
-    # --- Then run main ---
     main()
