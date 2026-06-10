@@ -57,7 +57,6 @@ def build_domain_to_publisher_map() -> dict[str, object]:
             class_name = line[1:-1]  # Remove the backticks
 
             # The domain line is 4 lines below the class name line
-            # (because of the blank line, name line, blank line, then domain line)
             if i + 4 < len(lines):
                 domain_line = lines[i + 4].strip()
                 # Match the pattern: 【数字† domain1 †domain2】
@@ -212,13 +211,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # --- Diagnostic: Build and inspect the map (remove after confirmation) ---
-    test_map = build_domain_to_publisher_map()
-    if test_map:
-        print("Sample domain mappings (first 5):")
-        for domain, publisher in list(test_map.items())[:5]:
-            print(f"  {domain} -> {publisher.__name__}")
-    else:
-        print("Domain map is empty. Check parsing logic.")
-    # --- End of diagnostic ---
+    # Only the main function is called here – no duplicate diagnostic call
     main()
