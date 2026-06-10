@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Parser-based pipeline.
+"""Fundus article extraction for WorldHUD – Debug version with User-Agent.
 
-- Parses the raw HTML table (supported_publishers.md) to build a domain → publisher map.
+- Parses the raw HTML table (supported_publishers.md) to build domain→publisher map.
+- Includes debug prints for troubleshooting.
+- Uses realistic User-Agent header to avoid 403 Forbidden.
 - Filters GDELT URLs by domain lookup.
 - Fetches HTML in parallel and extracts text with per-publisher Parsers.
-- Handles redirect loops, timeouts, and other errors gracefully.
-- Saves partial results.
+- Handles errors gracefully and saves partial results.
 """
 
 import os
 import json
 import sys
 import time
-import re                      # <-- ADDED
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
@@ -38,39 +38,35 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         print(f"Error fetching publisher list: {e}")
         return {}
 
-    # Build class_to_publisher correctly by iterating over each country's publishers
+    # Map class name → Publisher object
     class_to_publisher = {}
     for country_code in dir(PublisherCollection):
         if country_code.startswith("_"):
             continue
         group = getattr(PublisherCollection, country_code)
-        # group is an iterable of Publisher objects (e.g., `PublisherCollection.AT`)
         try:
             for publisher in group:
-                name = getattr(publisher, 'name', None)
-                if name is None:
-                    name = getattr(publisher, '__name__', None)
+                name = getattr(publisher, 'name', None) or getattr(publisher, '__name__', None)
                 if name:
                     class_to_publisher[name] = publisher
         except TypeError:
-            # If not iterable (e.g., a single publisher), handle directly
-            name = getattr(group, 'name', None)
-            if name is None:
-                name = getattr(group, '__name__', None)
+            name = getattr(group, 'name', None) or getattr(group, '__name__', None)
             if name:
                 class_to_publisher[name] = group
 
-    # Debug: show first 20 keys to verify they are publisher names
+    # Debug: show first 20 keys
     print("DEBUG: class_to_publisher sample keys (first 20):")
     sample_keys = list(class_to_publisher.keys())[:20]
     for k in sample_keys:
         print(f"    {k}")
 
-    # Parse HTML tables
     domain_to_publisher = {}
     tables = soup.find_all("table")
-    for table in tables:
-        for row in table.find_all("tr"):
+    print(f"DEBUG: Found {len(tables)} tables")
+    for table_idx, table in enumerate(tables):
+        rows = table.find_all("tr")
+        print(f"DEBUG: Table {table_idx} has {len(rows)} rows")
+        for row in rows:
             cells = row.find_all("td")
             if len(cells) < 3:
                 continue
@@ -90,6 +86,17 @@ def build_domain_to_publisher_map() -> dict[str, object]:
             publisher = class_to_publisher.get(class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
+                # Print first 10 successful mappings
+                if len(domain_to_publisher) <= 10:
+                    print(f"DEBUG: Mapped {domain} -> {class_name}")
+            else:
+                # Print first 10 missing class names
+                if len([c for c in class_to_publisher if c == class_name]) == 0:
+                    if 'missing_logged' not in locals():
+                        missing_logged = set()
+                    if class_name not in missing_logged and len(missing_logged) < 10:
+                        print(f"DEBUG: Missing class_name: {class_name}")
+                        missing_logged.add(class_name)
 
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
     if len(domain_to_publisher) == 0:
@@ -157,9 +164,13 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Setup for parallel fetching
+    # Setup for parallel fetching with realistic headers
     session = requests.Session()
     session.max_redirects = 5
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+
     MAX_WORKERS = 8
     articles: dict[str, str] = {}
     processed = 0
