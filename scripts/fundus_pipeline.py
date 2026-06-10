@@ -27,38 +27,31 @@ from fundus.parser import ParserProxy
 # Helper: Build domain → Publisher map by iterating PublisherCollection
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object.
-
-    This function extracts the domains from each Publisher in the collection
-    using the internal `_domains` attribute (the only reliable source of this
-    information in the current Fundus version). Because the attribute name is
-    private, we wrap the access in a try/except block to remain robust.
-    """
+    """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object."""
     domain_to_publisher = {}
 
-    # Iterate through all publishers in the collection
-    for publisher in PublisherCollection:
-        try:
-            # The domain information lives inside the Publisher's `_domains`
-            # attribute. It is a list of domain strings (e.g. ['nytimes.com']).
-            domains = getattr(publisher, '_domains', [])
-            for domain in domains:
-                # Normalise the domain (remove 'www.')
-                clean_domain = domain.lower()
-                if clean_domain.startswith('www.'):
-                    clean_domain = clean_domain[4:]
-                domain_to_publisher[clean_domain] = publisher
-        except Exception:
-            # If a particular publisher cannot be processed, skip it
-            # (the loop continues with the next publisher).
+    # Iterate over all country codes (e.g., 'us', 'de', 'uk') in PublisherCollection
+    for country_code in dir(PublisherCollection):
+        if country_code.startswith("_"):  # Skip private/internal attributes
             continue
+        
+        # Get the country group (a PublisherGroup object)
+        country_group = getattr(PublisherCollection, country_code)
+        
+        # The country_group is iterable and contains all Publisher objects for that country
+        for publisher in country_group:
+            # Access the publisher's internal _domains attribute (list of domain strings)
+            domains = getattr(publisher, "_domains", [])
+            for domain in domains:
+                clean_domain = domain.lower()
+                if clean_domain.startswith("www."):
+                    clean_domain = clean_domain[4:]   # Remove 'www.' prefix
+                domain_to_publisher[clean_domain] = publisher
 
-    # Debug output – verify the map was built correctly
     print(f"  Built domain→publisher map with {len(domain_to_publisher)} entries")
     sample = list(domain_to_publisher.keys())[:10]
     if sample:
         print(f"  Sample domains: {', '.join(sample)}")
-
     return domain_to_publisher
 
 
