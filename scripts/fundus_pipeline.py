@@ -28,108 +28,53 @@ from fundus.parser import ParserProxy
 # Build a domain → publisher map from the official supported_publishers.md
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """
-    Fetches the official supported_publishers.md file and parses it to build
-    a mapping from domain (e.g. 'nytimes.com') to its Fundus Publisher object.
-    """
-    print("  Fetching the official list of supported publishers...")
     url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
-    try:
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        content = response.text
-    except Exception as e:
-        print(f"  Error fetching publisher list: {e}")
-        return {}
+    response = requests.get(url, timeout=15)
+    response.raise_for_status()
+    lines = response.text.splitlines()
 
-    # Regular expression to extract the class name and the domain(s)
-    # Pattern 1: Finds lines like:
-    #   `ClassName`
-    #   Name
-    #   【1† domain.com †domain.com】
-    # We'll capture: class_name, domain1, domain2 (optional)
-    domain_to_publisher = {}
-
-    # Split content into blocks separated by blank lines to group each publisher
-    blocks = re.split(r'\n\s*\n', content)
-    current_class = None
-
-    for block in blocks:
-        lines = block.strip().splitlines()
-        if not lines:
+    # First, build a lookup from class name → Publisher object
+    class_to_publisher = {}
+    for country_code in dir(PublisherCollection):
+        if country_code.startswith("_"):
             continue
+        group = getattr(PublisherCollection, country_code)
+        if isinstance(group, list):
+            for publisher in group:
+                class_to_publisher[publisher.__name__] = publisher
+        else:
+            class_to_publisher[group.__name__] = group
 
-        # Look for a line that starts and ends with backticks (the class name)
-        # This is the line with the publisher's class name
-        class_match = None
-        for line in lines:
-            line = line.strip()
-            if line.startswith('`') and line.endswith('`'):
-                # This is the class name line
-                class_match = line[1:-1]  # remove backticks
-                break
-
-        if class_match:
-            current_class = class_match
-        elif current_class:
-            # This block belongs to the current class
-            # Find domain(s) in this block
-            # Pattern for the domain line: 【数字† domain †domain】
-            domain_pattern = r'【\d+†\s*([^\s†]+)\s*†\s*([^\s†]+)】'
-            for line in lines:
-                match = re.search(domain_pattern, line)
+    # Now parse the markdown
+    domain_to_publisher = {}
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        # Look for a line that starts and ends with a backtick (class name line)
+        if line.startswith("`") and line.endswith("`"):
+            class_name = line[1:-1]  # Remove backticks
+            # Look ahead for the URL line (at most 5 lines down)
+            j = i + 1
+            while j < len(lines) and j < i + 6:
+                look = lines[j].strip()
+                # Match the pattern: 【数字† domain1 †domain2】
+                match = re.search(r"【\d+†\s*([^\s†]+)", look)
                 if match:
-                    # The first capture group is the domain (usually without www)
-                    # The second is the same domain (with or without www)
-                    domain = match.group(1).strip()
+                    domain = match.group(1)
+                    # Clean the domain (remove 'www.')
                     clean_domain = domain.lower()
-                    if clean_domain.startswith('www.'):
+                    if clean_domain.startswith("www."):
                         clean_domain = clean_domain[4:]
-
-                    # Find the Publisher object for this class name
-                    publisher = _get_publisher_by_class_name(current_class)
+                    # Get the Publisher object
+                    publisher = class_to_publisher.get(class_name)
                     if publisher:
                         domain_to_publisher[clean_domain] = publisher
-                        # Also add the domain with www if it's not already there
-                        # (helps with matching URLs that have www)
-                        if domain != clean_domain:
-                            domain_to_publisher[domain] = publisher
-                    break  # Assume only one domain per publisher (most have one)
+                    break
+                j += 1
+        i += 1
 
     print(f"  Built domain→publisher map with {len(domain_to_publisher)} entries")
-    sample = list(domain_to_publisher.keys())[:10]
-    if sample:
-        print(f"  Sample domains: {', '.join(sample)}")
-    else:
-        print("  [Diagnostic] Domain map is empty. Check if the markdown file format has changed.")
     return domain_to_publisher
-
-
-def _get_publisher_by_class_name(class_name: str) -> object | None:
-    """
-    Given a publisher class name (e.g., 'TheNewYorker'), find and return the
-    corresponding Publisher object from PublisherCollection.
-    """
-    # Iterate through all country groups in PublisherCollection
-    for country_code in dir(PublisherCollection):
-        if country_code.startswith('_'):
-            continue
-        try:
-            country_group = getattr(PublisherCollection, country_code)
-        except Exception:
-            continue
-
-        # Determine if this is a list of publishers or a single publisher
-        if isinstance(country_group, list):
-            publishers = country_group
-        else:
-            publishers = [country_group]
-
-        # Search for the publisher by its class name
-        for publisher in publishers:
-            if publisher.__name__ == class_name:
-                return publisher
-    return None
 
 
 # ---------------------------------------------------------------------------
