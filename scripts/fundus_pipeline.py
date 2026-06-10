@@ -168,43 +168,62 @@ def main():
     processed = 0
     start_time = time.time()
 
-    def fetch_and_parse(url: str, publisher) -> tuple[str, str | None]:
-        print(f"Fetching: {url[:80]}...")
-        try:
-            resp = session.get(url, timeout=15)
-            resp.raise_for_status()
-            html = resp.text
-        except TooManyRedirects:
-            print(f"🚫 Redirect loop: {url}")
-            return url, None
-        except Exception as e:
-            print(f"❌ Network error for {url}: {e}")
-            return url, None
+def fetch_and_parse(url: str, publisher) -> tuple[str, str | None]:
+    print(f"Fetching: {url[:80]}...")
+    try:
+        resp = session.get(url, timeout=15)
+        resp.raise_for_status()
+        html = resp.text
+    except Exception as e:
+        print(f"❌ Network error for {url}: {e}")
+        return url, None
 
-        try:
-            parser_class = publisher.parser
-            parser = parser_class()
-            result = parser.parse(html, url)
-            # Handle both object and dict
-            if hasattr(result, 'body') and result.body and result.body.text:
-                return url, result.body.text
-            elif isinstance(result, dict):
-                body = result.get('body')
-                if body and isinstance(body, dict):
-                    text = body.get('text')
+    try:
+        parser_class = publisher.parser
+        parser = parser_class()
+        result = parser.parse(html, url)
+
+        # Handle object with .body
+        if hasattr(result, 'body') and result.body and result.body.text:
+            return url, result.body.text
+
+        # Handle dictionary
+        if isinstance(result, dict):
+            # First, try to get the 'body' field
+            body = result.get('body')
+            if body is not None:
+                # If body is a string, use it directly
+                if isinstance(body, str):
+                    text = body.strip()
                     if text:
                         return url, text
-                elif body and isinstance(body, str):
-                    return url, body
-                else:
-                    print(f"⚠️ Unexpected dict structure for {url}: keys {list(result.keys())}")
-                    return url, None
-            else:
-                print(f"⚠️ No extractable text for {url}")
-                return url, None
-        except Exception as e:
-            print(f"❌ Parsing error for {url}: {e}")
+                # If body is a dict, look for common text keys
+                elif isinstance(body, dict):
+                    text = body.get('text') or body.get('content') or body.get('articleBody') or body.get('html')
+                    if text and isinstance(text, str) and len(text) > 50:
+                        return url, text
+                    # Fallback: take the first long string value from the body dict
+                    for val in body.values():
+                        if isinstance(val, str) and len(val) > 100:
+                            return url, val
+            # Fallback: search other top-level keys
+            for key in ['text', 'content', 'articleBody']:
+                if key in result and isinstance(result[key], str) and len(result[key]) > 100:
+                    return url, result[key]
+
+            # If all else fails, print a diagnostic and return None
+            print(f"⚠️ Could not extract text from dict for {url}. Top-level keys: {list(result.keys())}")
+            if 'body' in result:
+                print(f"   'body' type: {type(result['body'])}")
+                if isinstance(result['body'], dict):
+                    print(f"   'body' keys: {list(result['body'].keys())}")
             return url, None
+        else:
+            print(f"⚠️ No extractable text for {url}")
+            return url, None
+    except Exception as e:
+        print(f"❌ Parsing error for {url}: {e}")
+        return url, None
 
     print("DEBUG: Starting ThreadPoolExecutor...")
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
