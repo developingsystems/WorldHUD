@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Direct parser pipeline.
+"""Fundus article extraction for WorldHUD – Final direct parser pipeline.
 
 - Builds domain → publisher map from the HTML table.
 - Filters URLs to supported domains.
 - Fetches HTML in parallel.
-- Uses publisher.parser to get the correct parser class for each URL.
-- Saves extracted text to JSON.
+- Uses publisher.parser to get the correct parser class.
+- Handles both Article object and dict return types.
+- Debug prints to trace execution.
 """
 
 import os
@@ -21,7 +22,6 @@ from bs4 import BeautifulSoup
 from requests.exceptions import TooManyRedirects
 
 from fundus import PublisherCollection
-
 
 # ---------------------------------------------------------------------------
 # Build domain → publisher map
@@ -107,7 +107,6 @@ def article_json_exists(timestamp: str) -> bool:
 # Main pipeline
 # ---------------------------------------------------------------------------
 def main():
-    # Ensure output directory exists
     os.makedirs("articles", exist_ok=True)
 
     timestamp = os.environ.get("CHUNK_TIMESTAMP")
@@ -129,10 +128,8 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Build domain → publisher map
     domain_to_pub = build_domain_publisher_map()
 
-    # Filter URLs to those with supported domains
     supported = []
     for url in urls:
         domain = urlparse(url).netloc.lower()
@@ -152,7 +149,9 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Shared session with realistic headers
+    # Debug: show first supported item
+    print(f"DEBUG: First supported URL: {supported[0][0][:80]}... Publisher: {supported[0][1]}")
+
     session = requests.Session()
     session.max_redirects = 5
     session.headers.update({
@@ -169,41 +168,45 @@ def main():
     processed = 0
     start_time = time.time()
 
-def fetch_and_parse(url: str, publisher) -> tuple[str, str | None]:
-    try:
-        resp = session.get(url, timeout=15)
-        resp.raise_for_status()
-        html = resp.text
-    except Exception as e:
-        print(f"❌ Network error for {url}: {e}")
-        return url, None
-
-    try:
-        parser_class = publisher.parser
-        parser = parser_class()
-        result = parser.parse(html, url)   # result can be an Article or a dict
-        # Handle both object and dict
-        if hasattr(result, 'body') and result.body and result.body.text:
-            return url, result.body.text
-        elif isinstance(result, dict):
-            # Try common keys
-            body = result.get('body')
-            if body and isinstance(body, dict):
-                text = body.get('text')
-                if text:
-                    return url, text
-            elif body and isinstance(body, str):
-                return url, body
-            else:
-                print(f"⚠️ Unexpected dict structure for {url}: {list(result.keys())}")
-                return url, None
-        else:
-            print(f"⚠️ No text for {url}")
+    def fetch_and_parse(url: str, publisher) -> tuple[str, str | None]:
+        print(f"Fetching: {url[:80]}...")
+        try:
+            resp = session.get(url, timeout=15)
+            resp.raise_for_status()
+            html = resp.text
+        except TooManyRedirects:
+            print(f"🚫 Redirect loop: {url}")
             return url, None
-    except Exception as e:
-        print(f"❌ Parsing error for {url}: {e}")
-        return url, None
+        except Exception as e:
+            print(f"❌ Network error for {url}: {e}")
+            return url, None
 
+        try:
+            parser_class = publisher.parser
+            parser = parser_class()
+            result = parser.parse(html, url)
+            # Handle both object and dict
+            if hasattr(result, 'body') and result.body and result.body.text:
+                return url, result.body.text
+            elif isinstance(result, dict):
+                body = result.get('body')
+                if body and isinstance(body, dict):
+                    text = body.get('text')
+                    if text:
+                        return url, text
+                elif body and isinstance(body, str):
+                    return url, body
+                else:
+                    print(f"⚠️ Unexpected dict structure for {url}: keys {list(result.keys())}")
+                    return url, None
+            else:
+                print(f"⚠️ No extractable text for {url}")
+                return url, None
+        except Exception as e:
+            print(f"❌ Parsing error for {url}: {e}")
+            return url, None
+
+    print("DEBUG: Starting ThreadPoolExecutor...")
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_url = {executor.submit(fetch_and_parse, url, pub): url for url, pub in supported}
         for future in as_completed(future_to_url):
@@ -211,7 +214,6 @@ def fetch_and_parse(url: str, publisher) -> tuple[str, str | None]:
             processed += 1
             if processed % 10 == 0:
                 print(f"Processed {processed}/{len(supported)} articles so far…")
-
             try:
                 returned_url, text = future.result()
                 if text:
