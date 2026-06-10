@@ -50,19 +50,22 @@ def build_domain_to_publisher_map() -> dict[str, object]:
 
     domain_to_publisher = {}
     tables = soup.find_all("table")
-    print(f"DEBUG: Found {len(tables)} tables")
-    for idx, table in enumerate(tables):
-        print(f"DEBUG: Table {idx} class: {table.get('class')}")
+    for table_idx, table in enumerate(tables):
         rows = table.find_all("tr")
-        print(f"DEBUG: Table {idx} has {len(rows)} rows")
-        for row in rows:
+        for row_idx, row in enumerate(rows):
             cells = row.find_all("td")
             if len(cells) < 3:
                 continue
+            # DEBUG: print first few rows from first table
+            if table_idx == 0 and row_idx < 3:
+                print(f"DEBUG: Row {row_idx} cell0 HTML: {cells[0]}")
+                print(f"DEBUG: Row {row_idx} cell2 HTML: {cells[2]}")
+            # Class name is inside <code> in first cell
             code_tag = cells[0].find("code")
             if not code_tag:
                 continue
             class_name = code_tag.get_text(strip=True)
+            # URL is in <a href> in third cell
             a_tag = cells[2].find("a")
             if not a_tag:
                 continue
@@ -75,10 +78,11 @@ def build_domain_to_publisher_map() -> dict[str, object]:
             publisher = class_to_publisher.get(class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-                print(f"DEBUG: Mapped {domain} -> {class_name}")
+            else:
+                # DEBUG: print if class_name not found
+                if table_idx == 0 and row_idx < 3:
+                    print(f"DEBUG: class_name '{class_name}' not in class_to_publisher")
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
-    if len(domain_to_publisher) == 0:
-        print("  [Diagnostic] Domain map is empty. Check HTML table parsing.")
     return domain_to_publisher
 
 
