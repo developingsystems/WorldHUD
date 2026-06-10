@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Debug version with User-Agent.
+"""Fundus article extraction for WorldHUD – Final working pipeline.
 
-- Parses the raw HTML table (supported_publishers.md) to build domain→publisher map.
-- Includes debug prints for troubleshooting.
-- Uses realistic User-Agent header to avoid 403 Forbidden.
+- Parses the raw HTML table to build domain→publisher map.
 - Filters GDELT URLs by domain lookup.
-- Fetches HTML in parallel and extracts text with per-publisher Parsers.
-- Handles errors gracefully and saves partial results.
+- Fetches HTML in parallel with realistic browser headers.
+- Extracts text using the correct Parser class.
+- Handles errors and saves partial results.
 """
 
 import os
@@ -21,15 +20,13 @@ import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import TooManyRedirects
 
-from fundus import PublisherCollection
-from fundus.parser import ParserProxy
+from fundus import PublisherCollection, Parser  # ✅ Correct import
 
 
 # ---------------------------------------------------------------------------
 # Build a domain → publisher map from the raw HTML file
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    import re
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
@@ -39,17 +36,10 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         print(f"Error fetching publisher list: {e}")
         return {}
 
-    # Directly retrieve the publisher by its class name from the PublisherCollection
     def get_publisher_by_class_name(country_group, class_name):
-        """
-        Attempt to retrieve a publisher from the country group using the exact
-        class name as an attribute.
-        """
         try:
-            # Assume the publisher is directly accessible as an attribute
             return getattr(country_group, class_name)
         except AttributeError:
-            # Fallback: If it's a list, search for it (though this should not be necessary)
             if isinstance(country_group, list):
                 for pub in country_group:
                     if pub.__name__ == class_name:
@@ -59,60 +49,48 @@ def build_domain_to_publisher_map() -> dict[str, object]:
     domain_to_publisher = {}
     tables = soup.find_all("table")
     for table in tables:
-        # Get the country code from the table's class (e.g., 'at', 'us')
+        # Extract country code from table class (e.g., 'at', 'us')
         country_code = None
-        for class_name in table.get('class', []):
-            if class_name in ['at', 'au', 'be', 'ca', 'ch', 'cn', 'cz', 'de', 'dk', 'es', 'fr', 'gl', 'id', 'il', 'ind', 'isl', 'it', 'jp', 'kr', 'lb', 'li', 'ls', 'lt', 'lu', 'mx', 'my', 'na', 'no', 'pl', 'pt', 'py', 'ru', 'se', 'tr', 'tw', 'tz', 'ua', 'uk', 'us', 'vn', 'za']:
-                country_code = class_name
+        for cls in table.get('class', []):
+            if cls in ['at', 'au', 'be', 'ca', 'ch', 'cn', 'cz', 'de', 'dk', 'es', 'fr',
+                       'gl', 'id', 'il', 'ind', 'isl', 'it', 'jp', 'kr', 'lb', 'li', 'ls',
+                       'lt', 'lu', 'mx', 'my', 'na', 'no', 'pl', 'pt', 'py', 'ru', 'se',
+                       'tr', 'tw', 'tz', 'ua', 'uk', 'us', 'vn', 'za']:
+                country_code = cls
                 break
-
-        if country_code is None:
+        if not country_code:
             continue
-
         country_group = getattr(PublisherCollection, country_code, None)
-        if country_group is None:
+        if not country_group:
             continue
 
         for row in table.find_all("tr"):
             cells = row.find_all("td")
             if len(cells) < 3:
                 continue
-
-            # Class name is in the first cell, inside the <code> tag
             code_tag = cells[0].find("code")
             if not code_tag:
                 continue
-            class_name = code_tag.get_text(strip=True)  # e.g., 'DerStandard'
-
-            # Domain is in the third cell, inside the <a> tag
+            class_name = code_tag.get_text(strip=True)
             a_tag = cells[2].find("a")
             if not a_tag:
                 continue
             href = a_tag.get("href", "")
             if not href.startswith("https://"):
                 continue
-
-            # Clean and get the domain
             domain = href.split("//")[1].split("/")[0].lower()
             if domain.startswith("www."):
                 domain = domain[4:]
-
-            # Get the publisher object using the class name
             publisher = get_publisher_by_class_name(country_group, class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-                if len(domain_to_publisher) <= 10:
-                    print(f"DEBUG: Mapped {domain} -> {class_name}")
-            else:
-                if len(domain_to_publisher) == 0:
-                    print(f"DEBUG: Could not find publisher for class '{class_name}' in {country_code}")
 
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
     return domain_to_publisher
 
 
 # ---------------------------------------------------------------------------
-# Duplicate guard – check if output file already exists in GitHub release
+# Duplicate guard
 # ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/{prefix}{timestamp}.json"
@@ -148,10 +126,9 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Build the domain → publisher map
     domain_to_publisher = build_domain_to_publisher_map()
 
-    # Filter URLs by supported domains
+    # Filter URLs
     supported_urls = []
     for url in urls:
         domain = urlparse(url).netloc.lower()
@@ -171,11 +148,16 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Setup for parallel fetching with realistic headers
+    # Setup session with realistic browser headers
     session = requests.Session()
     session.max_redirects = 5
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
     })
 
     MAX_WORKERS = 8
@@ -201,7 +183,8 @@ def main():
             print(f"❌ Network error for {url}: {e}")
             return url, None
 
-        parser = ParserProxy(publisher)
+        # ✅ Use the correct Parser class (not ParserProxy)
+        parser = Parser(publisher)
         try:
             article = parser.parse(resp.text, url)
             if article.body and article.body.text:
