@@ -18,40 +18,30 @@ from fundus.parser import ParserProxy
 
 # --- Domain Map Builder (Reliable method) ---
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Parses the official Fundus publishers list to create a domain->publisher map."""
-    print("  Fetching the official list of supported publishers...")
+    """Parse supported_publishers.md and return domain -> Publisher object."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        content = response.text
-    except Exception as e:
-        print(f"  Error fetching publisher list: {e}")
-        return {}
-
+    response = requests.get(url, timeout=15)
+    response.raise_for_status()
+    
     domain_to_publisher = {}
-    # Regular expression to find patterns like "- **[Publisher Name]** (domain1.com, domain2.org)"
+    # Pattern matches: "- **Publisher Name** (domain1.com, domain2.org)"
     pattern = r"- \*\*(.+?)\*\* \(([^)]+)\)"
-
-    for line in content.splitlines():
+    
+    for line in response.text.splitlines():
         match = re.search(pattern, line)
         if match:
-            publisher_name = match.group(1)
+            pub_name = match.group(1)
             domains_str = match.group(2)
             domains = [d.strip() for d in domains_str.split(",")]
-
-            # Find the actual Publisher object by its name
-            for pub in PublisherCollection:
-                if pub.__name__ == publisher_name:
-                    for domain in domains:
-                        # Clean the domain (remove 'www.')
-                        clean_domain = domain.lower()
-                        if clean_domain.startswith("www."):
-                            clean_domain = clean_domain[4:]
-                        domain_to_publisher[clean_domain] = pub
-                    break
-
-    print(f"  Built domain->publisher map with {len(domain_to_publisher)} entries.")
+            
+            # Find the actual Publisher object by name
+            for country_group in PublisherCollection:
+                for publisher in country_group:
+                    if publisher.__name__ == pub_name:
+                        for domain in domains:
+                            clean_domain = domain.lower().replace('www.', '')
+                            domain_to_publisher[clean_domain] = publisher
+                        break
     return domain_to_publisher
 
 
