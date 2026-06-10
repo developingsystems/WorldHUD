@@ -38,42 +38,39 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         print(f"Error fetching publisher list: {e}")
         return {}
 
-    # ---------- Build class_to_publisher ----------
+    # Build class_to_publisher correctly by iterating over each country's publishers
     class_to_publisher = {}
     for country_code in dir(PublisherCollection):
         if country_code.startswith("_"):
             continue
         group = getattr(PublisherCollection, country_code)
-        publishers = group if isinstance(group, list) else [group]
-        for publisher in publishers:
-            # Try .name first (common in Fundus)
-            name = getattr(publisher, 'name', None)
+        # group is an iterable of Publisher objects (e.g., `PublisherCollection.AT`)
+        try:
+            for publisher in group:
+                name = getattr(publisher, 'name', None)
+                if name is None:
+                    name = getattr(publisher, '__name__', None)
+                if name:
+                    class_to_publisher[name] = publisher
+        except TypeError:
+            # If not iterable (e.g., a single publisher), handle directly
+            name = getattr(group, 'name', None)
             if name is None:
-                name = getattr(publisher, '__name__', None)
+                name = getattr(group, '__name__', None)
             if name:
-                class_to_publisher[name] = publisher
-            else:
-                # Last resort: use str(publisher) or repr
-                name = str(publisher).split()[0] if ' ' in str(publisher) else str(publisher)
-                class_to_publisher[name] = publisher
+                class_to_publisher[name] = group
 
-    # Debug: print first 20 keys from class_to_publisher
+    # Debug: show first 20 keys to verify they are publisher names
     print("DEBUG: class_to_publisher sample keys (first 20):")
     sample_keys = list(class_to_publisher.keys())[:20]
     for k in sample_keys:
         print(f"    {k}")
 
-    # ---------- Parse HTML tables ----------
+    # Parse HTML tables
     domain_to_publisher = {}
     tables = soup.find_all("table")
-    print(f"DEBUG: Found {len(tables)} tables")
-    row_count = 0
-    mapped_count = 0
-    missing_class_names = set()
-
-    for table_idx, table in enumerate(tables):
-        rows = table.find_all("tr")
-        for row in rows:
+    for table in tables:
+        for row in table.find_all("tr"):
             cells = row.find_all("td")
             if len(cells) < 3:
                 continue
@@ -90,26 +87,10 @@ def build_domain_to_publisher_map() -> dict[str, object]:
             domain = href.split("//")[1].split("/")[0].lower()
             if domain.startswith("www."):
                 domain = domain[4:]
-
             publisher = class_to_publisher.get(class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-                mapped_count += 1
-                # Print first 10 successful mappings
-                if mapped_count <= 10:
-                    print(f"DEBUG: Mapped {domain} -> {class_name}")
-            else:
-                missing_class_names.add(class_name)
-                # Print first 10 missing class names
-                if len(missing_class_names) <= 10:
-                    print(f"DEBUG: Missing class_name: {class_name}")
 
-            row_count += 1
-
-    print(f"DEBUG: Total rows processed: {row_count}")
-    print(f"DEBUG: Successful mappings: {mapped_count}")
-    if missing_class_names:
-        print(f"DEBUG: Missing class_names (first 10): {list(missing_class_names)[:10]}")
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
     if len(domain_to_publisher) == 0:
         print("  [Diagnostic] Domain map is empty. Check class_to_publisher keys vs extracted class names.")
