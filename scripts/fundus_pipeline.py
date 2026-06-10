@@ -18,25 +18,33 @@ from fundus.parser import ParserProxy
 
 # --- Domain Map Builder (Reliable method) ---
 def build_domain_to_publisher_map() -> dict[str, object]:
-    url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
-    
+    """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object."""
     domain_to_publisher = {}
-    # Pattern matches the format: 【数字† domain †domain】
-    pattern = r"【\d+†\s*([^\s†]+)\s*†\s*([^\s†]+)】"
-    
-    for line in response.text.splitlines():
-        match = re.search(pattern, line)
-        if match:
-            domain = match.group(1).replace("www.", "")
-            # Look up the actual Publisher object (you'll need to match by domain)
-            # This part still requires you to know which publisher the domain belongs to
-            # which is why Option 1 is simpler
-            domain_to_publisher[domain] = None  # Placeholder
-    
+    # List of country codes that have publisher groups in PublisherCollection
+    country_codes = ['us', 'de', 'uk', 'fr', 'es', 'it', 'ca', 'au', 'in', 'jp', 'cn', 'br', 'mx', 'za', 'nl', 'se', 'no', 'dk', 'fi', 'pl', 'cz', 'at', 'ch', 'be', 'ie', 'nz', 'sg', 'hk', 'tw', 'kr', 'id', 'ph', 'vn', 'th', 'my', 'ae', 'sa', 'il', 'tr', 'ru', 'pl', 'ro', 'bg', 'gr', 'hu', 'pt', 'rs', 'si', 'sk', 'lt', 'lv', 'ee', 'is', 'lu', 'mt', 'cy', 'hr', 'ba', 'al', 'mk', 'me', 'am', 'ge', 'az', 'kz', 'uz', 'tm', 'kg', 'tj', 'mn', 'np', 'bd', 'lk', 'pk', 'af', 'iq', 'sy', 'jo', 'lb', 'ps', 'ye', 'om', 'qa', 'kw', 'bh', 'mu', 'sc', 'km', 'mg', 'mw', 'zm', 'zw', 'ke', 'ug', 'tz', 'rw', 'bi', 'cd', 'cg', 'ga', 'cm', 'ng', 'gh', 'ci', 'sn', 'ml', 'bf', 'ne', 'td', 'cf', 'dj', 'er', 'et', 'so', 'ss', 'sd', 'ly', 'tn', 'dz', 'ma', 'mr', 'sl', 'lr', 'gw', 'gn', 'cv', 'st', 'gq', 'ga', 'bj', 'tg', 'bj', 'bf', 'gw', 'sn', 'gm', 'ml', 'ne', 'td', 'cf', 'cg', 'cd', 'rw', 'bi', 'ug', 'ke', 'tz', 'zm', 'zw', 'mw', 'mz', 'na', 'bw', 'za', 'sz', 'ls', 'mg', 'km', 'sc', 'mu', 'cv', 'st', 'gq', 'ga', 'bj', 'tg', 'bj', 'bf', 'gw', 'sn', 'gm', 'ml', 'ne', 'td', 'cf', 'cg', 'cd', 'rw', 'bi', 'ug', 'ke', 'tz', 'zm', 'zw', 'mw', 'mz', 'na', 'bw', 'za', 'sz', 'ls', 'mg', 'km', 'sc', 'mu', 'cv', 'st', 'gq', 'ga', 'bj', 'tg']
+    # The list above is incomplete; it's better to use the dynamic approach below
+    for country_code in dir(PublisherCollection):
+        if country_code.startswith('_'):
+            continue
+        try:
+            country_group = getattr(PublisherCollection, country_code)
+        except Exception:
+            continue
+        # A country group can be a single publisher or a list of publishers
+        if hasattr(country_group, '__iter__') and not isinstance(country_group, str):
+            publishers = country_group
+        else:
+            publishers = [country_group]
+        for publisher in publishers:
+            # Access the internal domain list (this attribute exists on all publisher objects)
+            domains = getattr(publisher, '_domains', [])
+            for domain in domains:
+                # Normalize the domain (remove 'www.' for consistent lookup)
+                clean_domain = domain.lower()
+                if clean_domain.startswith('www.'):
+                    clean_domain = clean_domain[4:]
+                domain_to_publisher[clean_domain] = publisher
     return domain_to_publisher
-
 
 # --- Duplicate Guard (unchanged) ---
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
