@@ -28,13 +28,8 @@ from fundus.parser import ParserProxy
 # Build a domain → publisher map from the official supported_publishers.md page
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """
-    Fetch the GitHub page that shows the supported publishers table,
-    extract the class name and domain for each publisher, and build a
-    mapping from cleaned domain to the actual Fundus Publisher object.
-    """
-    # GitHub's rendered HTML page is much easier to parse than the raw file
-    url = "https://github.com/flairNLP/fundus/blob/master/docs/supported_publishers.md"
+    """Parse the HTML tables in the raw supported_publishers.md file."""
+    url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
@@ -43,7 +38,7 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         print(f"Error fetching publisher list: {e}")
         return {}
 
-    # First, build a lookup from class name (e.g., 'DerStandard') to Publisher object
+    # Map class name → Publisher object
     class_to_publisher = {}
     for country_code in dir(PublisherCollection):
         if country_code.startswith("_"):
@@ -53,47 +48,37 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         for publisher in publishers:
             class_to_publisher[publisher.__name__] = publisher
 
-    # Now parse the HTML table
     domain_to_publisher = {}
-    # Locate the main table – it has the class "markdown-body" and contains the publisher list
-    # The table structure is a standard HTML `<table>` inside the markdown body.
-    # We'll find all rows in the table body.
-    table = soup.find("table")
-    if not table:
-        print("Error: Could not find the publishers table.")
-        return {}
+    # Find all tables with class starting with "publishers"
+    tables = soup.find_all("table", class_=re.compile(r"^publishers"))
+    for table in tables:
+        for row in table.find_all("tr"):
+            cells = row.find_all("td")
+            if len(cells) < 3:
+                continue
+            # Class name is inside <code> in first cell
+            code_tag = cells[0].find("code")
+            if not code_tag:
+                continue
+            class_name = code_tag.get_text(strip=True)
+            # URL is in <a href> in third cell
+            a_tag = cells[2].find("a")
+            if not a_tag:
+                continue
+            href = a_tag.get("href", "")
+            if not href.startswith("https://"):
+                continue
+            # Extract domain from href
+            domain = href.split("//")[1].split("/")[0].lower()
+            if domain.startswith("www."):
+                domain = domain[4:]
+            publisher = class_to_publisher.get(class_name)
+            if publisher:
+                domain_to_publisher[domain] = publisher
 
-    # Iterate through each row in the table body
-    for row in table.find_all("tr"):
-        cells = row.find_all("td")
-        if len(cells) < 3:
-            continue
-
-        # The class name is in the first column, wrapped in a <code> tag
-        code_tag = cells[0].find("code")
-        if not code_tag:
-            continue
-        class_name = code_tag.get_text(strip=True)
-
-        # The domain is in the third column, inside an <a> tag's href attribute
-        a_tag = cells[2].find("a")
-        if not a_tag:
-            continue
-        href = a_tag.get("href", "")
-        if not href.startswith("https://"):
-            continue
-
-        # Extract the domain from the href
-        raw_domain = href.split("//")[1].split("/")[0].lower()
-        clean_domain = raw_domain[4:] if raw_domain.startswith("www.") else raw_domain
-
-        publisher = class_to_publisher.get(class_name)
-        if publisher:
-            domain_to_publisher[clean_domain] = publisher
-
-    print(f"Built domain->publisher map with {len(domain_to_publisher)} entries")
+    print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
     if len(domain_to_publisher) == 0:
-        print("  [Diagnostic] Domain map is empty. Check parsing logic.")
+        print("  [Diagnostic] Domain map is empty. Check HTML table parsing.")
     return domain_to_publisher
 
 
