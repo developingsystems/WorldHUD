@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fundus article extraction for WorldHUD – Parser-based pipeline.
 
-- Scrapes the official GitHub 'supported_publishers.md' page to build a domain→publisher map.
+- Parses the raw HTML table (supported_publishers.md) to build a domain → publisher map.
 - Filters GDELT URLs by domain lookup.
 - Fetches HTML in parallel and extracts text with per-publisher Parsers.
 - Handles redirect loops, timeouts, and other errors gracefully.
@@ -12,6 +12,7 @@ import os
 import json
 import sys
 import time
+import re                      # <-- ADDED
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
@@ -25,7 +26,7 @@ from fundus.parser import ParserProxy
 
 
 # ---------------------------------------------------------------------------
-# Build a domain → publisher map from the official supported_publishers.md page
+# Build a domain → publisher map from the raw HTML file
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
     """Parse the HTML tables in the raw supported_publishers.md file."""
@@ -86,7 +87,6 @@ def build_domain_to_publisher_map() -> dict[str, object]:
 # Duplicate guard – check if output file already exists in GitHub release
 # ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
-    """Return True if the output file already exists in the GitHub release."""
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/{prefix}{timestamp}.json"
     try:
         req = urllib.request.Request(url, method="HEAD")
