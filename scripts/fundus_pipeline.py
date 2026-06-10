@@ -30,27 +30,20 @@ from fundus.parser import ParserProxy
 def build_domain_to_publisher_map() -> dict[str, object]:
     """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object."""
     domain_to_publisher = {}
-
-    # Get all public attributes of PublisherCollection (e.g., 'us', 'de', 'uk', ...)
     for attr_name in dir(PublisherCollection):
         if attr_name.startswith("_"):
             continue
         group = getattr(PublisherCollection, attr_name)
-
-        # A group can be a single Publisher or a list of Publishers
         publishers = group if isinstance(group, list) else [group]
-
         for publisher in publishers:
-            # The .domains attribute is public and documented
-            for domain in getattr(publisher, "domains", []):
-                # Normalize domain (remove 'www.' if present)
+            # Use _domains, not domains
+            for domain in getattr(publisher, "_domains", []):
                 clean_domain = domain.lower()
                 if clean_domain.startswith("www."):
                     clean_domain = clean_domain[4:]
                 domain_to_publisher[clean_domain] = publisher
 
     print(f"  Built domain→publisher map with {len(domain_to_publisher)} entries")
-    # Show a few sample domains for debugging
     sample = list(domain_to_publisher.keys())[:10]
     if sample:
         print(f"  Sample domains: {', '.join(sample)}")
