@@ -166,10 +166,26 @@ def main():
     processed = 0
     start_time = time.time()
 
-    def fetch_and_parse(url: str, country_code: str, class_name: str) -> tuple[str, str | None]:
-        # Dynamic import of the correct parser class
-        # Module path: fundus.parser.publishers.{country_code}.{class_name}Parser
-        module_path = f"fundus.parser.publishers.{country_code}.{class_name}"
+def fetch_and_parse(url: str, country_code: str, class_name: str, publisher) -> tuple[str, str | None]:
+    # 1. Fetch the HTML (your existing logic)
+    try:
+        resp = session.get(url, timeout=15)
+        resp.raise_for_status()
+        html = resp.text
+    except TooManyRedirects:
+        print(f"🚫 Redirect loop: {url}")
+        return url, None
+    except Exception as e:
+        print(f"❌ Network error for {url}: {e}")
+        return url, None
+
+    # 2. Get the specific parser class from the Publisher object
+    try:
+        parser_class = publisher.parser
+    except AttributeError:
+        # Fallback: try dynamic import
+        import importlib
+        module_path = f"fundus.parser.publishers.{country_code}.{class_name.lower()}"
         parser_class_name = f"{class_name}Parser"
         try:
             module = importlib.import_module(module_path)
@@ -178,30 +194,18 @@ def main():
             print(f"❌ Could not import parser for {class_name} in {country_code}: {e}")
             return url, None
 
-        # Fetch HTML
-        try:
-            resp = session.get(url, timeout=15)
-            resp.raise_for_status()
-            html = resp.text
-        except TooManyRedirects:
-            print(f"🚫 Redirect loop: {url}")
+    # 3. Instantiate and parse
+    try:
+        parser = parser_class()
+        article = parser.parse(html, url)
+        if article.body and article.body.text:
+            return url, article.body.text
+        else:
+            print(f"⚠️ Extraction failed for {url}: no extractable text")
             return url, None
-        except Exception as e:
-            print(f"❌ Network error for {url}: {e}")
-            return url, None
-
-        # Instantiate and parse
-        try:
-            parser = parser_class()
-            article = parser.parse(html, url)
-            if article.body and article.body.text:
-                return url, article.body.text
-            else:
-                print(f"⚠️ Extraction failed for {url}: no extractable text")
-                return url, None
-        except Exception as e:
-            print(f"❌ Parsing error for {url}: {e}")
-            return url, None
+    except Exception as e:
+        print(f"❌ Parsing error for {url}: {e}")
+        return url, None
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_url = {
