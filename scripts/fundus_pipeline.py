@@ -172,4 +172,15 @@ def main():
 
 
 if __name__ == "__main__":
+    # --- TEST BLOCK (remove after verification) ---
+    from fundus import PublisherCollection
+    from fundus.parser import ParserProxy
+
+    pub = PublisherCollection.us[0]
+    print(f"Testing with: {pub}")
+    print(f"Domains: {pub._domains}")
+    print(f"All attributes: {dir(pub)}")
+    print("--- End of test ---")
+    # --- END TEST BLOCK ---
+
     main()
