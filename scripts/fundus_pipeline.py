@@ -29,6 +29,7 @@ from fundus.parser import ParserProxy
 # Build a domain → publisher map from the raw HTML file
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
+    """Parse the HTML tables in the raw supported_publishers.md file."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
@@ -50,39 +51,58 @@ def build_domain_to_publisher_map() -> dict[str, object]:
 
     domain_to_publisher = {}
     tables = soup.find_all("table")
+    print(f"DEBUG: Found {len(tables)} tables")
+    
     for table_idx, table in enumerate(tables):
         rows = table.find_all("tr")
+        print(f"DEBUG: Table {table_idx} has {len(rows)} rows")
         for row_idx, row in enumerate(rows):
             cells = row.find_all("td")
             if len(cells) < 3:
                 continue
-            # DEBUG: print first few rows from first table
+            
+            # Debug: print first few rows of first table
             if table_idx == 0 and row_idx < 3:
-                print(f"DEBUG: Row {row_idx} cell0 HTML: {cells[0]}")
-                print(f"DEBUG: Row {row_idx} cell2 HTML: {cells[2]}")
+                print(f"DEBUG: Row {row_idx}, cell0 HTML: {cells[0]}")
+                print(f"DEBUG: Row {row_idx}, cell2 HTML: {cells[2]}")
+            
             # Class name is inside <code> in first cell
             code_tag = cells[0].find("code")
             if not code_tag:
+                if table_idx == 0 and row_idx < 3:
+                    print(f"DEBUG: Row {row_idx} - No <code> tag in first cell")
                 continue
             class_name = code_tag.get_text(strip=True)
+            if table_idx == 0 and row_idx < 3:
+                print(f"DEBUG: Row {row_idx} - Extracted class_name: '{class_name}'")
+            
             # URL is in <a href> in third cell
             a_tag = cells[2].find("a")
             if not a_tag:
+                if table_idx == 0 and row_idx < 3:
+                    print(f"DEBUG: Row {row_idx} - No <a> tag in third cell")
                 continue
             href = a_tag.get("href", "")
             if not href.startswith("https://"):
                 continue
+            # Extract domain from href
             domain = href.split("//")[1].split("/")[0].lower()
             if domain.startswith("www."):
                 domain = domain[4:]
+            
+            # Check if publisher exists
             publisher = class_to_publisher.get(class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-            else:
-                # DEBUG: print if class_name not found
                 if table_idx == 0 and row_idx < 3:
-                    print(f"DEBUG: class_name '{class_name}' not in class_to_publisher")
+                    print(f"DEBUG: Mapped {domain} -> {class_name}")
+            else:
+                if table_idx == 0 and row_idx < 3:
+                    print(f"DEBUG: class_name '{class_name}' not found in class_to_publisher")
+    
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
+    if len(domain_to_publisher) == 0:
+        print("  [Diagnostic] Domain map is empty. Check HTML table parsing.")
     return domain_to_publisher
 
 
