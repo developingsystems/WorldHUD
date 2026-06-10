@@ -28,25 +28,30 @@ from fundus.parser import ParserProxy
 # Build a domain → Publisher mapping directly from Fundus
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Return a dict mapping a domain (e.g. 'nytimes.com') to its Fundus Publisher object."""
+    """Builds a mapping from domain (e.g., 'nytimes.com') to its Fundus Publisher object."""
     domain_to_publisher = {}
+    # Iterate through all country groups (e.g., 'us', 'de')
     for attr_name in dir(PublisherCollection):
         if attr_name.startswith("_"):
-            continue
+            continue  # Skip private attributes
         group = getattr(PublisherCollection, attr_name)
         publishers = group if isinstance(group, list) else [group]
         for publisher in publishers:
-            # Use _domains, not domains
-            for domain in getattr(publisher, "_domains", []):
-                clean_domain = domain.lower()
-                if clean_domain.startswith("www."):
-                    clean_domain = clean_domain[4:]
+            # Attempt to get the domain(s) from the publisher object
+            domains = []
+            # Try to get domains directly from the '_domains' attribute
+            if hasattr(publisher, '_domains') and publisher._domains:
+                domains = publisher._domains
+            # If not found, try to get them from the '_source' attribute
+            elif hasattr(publisher, '_source') and hasattr(publisher._source, 'domains'):
+                domains = publisher._source.domains
+            # If still not found, try to get a single domain from a 'domain' attribute
+            elif hasattr(publisher, 'domain') and publisher.domain:
+                domains = [publisher.domain]
+            # Process each domain found
+            for domain in domains:
+                clean_domain = domain.lower().replace('www.', '')
                 domain_to_publisher[clean_domain] = publisher
-
-    print(f"  Built domain→publisher map with {len(domain_to_publisher)} entries")
-    sample = list(domain_to_publisher.keys())[:10]
-    if sample:
-        print(f"  Sample domains: {', '.join(sample)}")
     return domain_to_publisher
 
 
@@ -172,13 +177,13 @@ def main():
 
 
 if __name__ == "__main__":
-    # --- QUICK TEST (remove after) ---
-    from fundus import PublisherCollection
-    count = 0
-    for pub in PublisherCollection.us:
-        print(pub, getattr(pub, '_domains', []))
-        count += 1
-        if count >= 3:   # just show first 3
+    print("Testing mapping...")
+    test_mapping = build_domain_to_publisher_map()
+    print(f"Map size: {len(test_mapping)}")
+    # Print the first 5 items
+    for i, (domain, pub) in enumerate(test_mapping.items()):
+        print(f"  {domain} -> {pub}")
+        if i >= 4:
             break
-    # --- then call your main ---
+    # Your main() call
     main()
