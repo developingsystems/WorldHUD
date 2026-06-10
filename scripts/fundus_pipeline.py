@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Parser-based pipeline.
+"""Fundus article extraction for WorldHUD – Final working pipeline.
 
-- Parses the raw HTML table to build a domain → publisher map.
+- Parses the raw HTML table to build a domain→publisher map.
 - Filters GDELT URLs by domain lookup.
-- Fetches HTML in parallel and extracts text with per-publisher Parsers.
-- Handles redirect loops, timeouts, and other errors gracefully.
-- Saves partial results.
+- Fetches HTML in parallel with realistic browser headers.
+- Extracts text using ParserProxy (requires valid Publisher object).
+- Handles errors and saves partial results.
 """
 
 import os
 import json
 import sys
 import time
-import re
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
@@ -22,14 +21,13 @@ from bs4 import BeautifulSoup
 from requests.exceptions import TooManyRedirects
 
 from fundus import PublisherCollection
-from fundus.parser import ParserProxy  # Correct import for the ParserProxy
+from fundus.parser import ParserProxy
 
 
 # ---------------------------------------------------------------------------
 # Build a domain → publisher map from the raw HTML file
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Parse the HTML tables in the raw supported_publishers.md file."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
@@ -51,6 +49,7 @@ def build_domain_to_publisher_map() -> dict[str, object]:
 
     domain_to_publisher = {}
     tables = soup.find_all("table")
+    print(f"DEBUG: Found {len(tables)} tables")
     for table in tables:
         # Extract country code from table class (e.g., 'at', 'us')
         country_code = None
@@ -66,6 +65,7 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         country_group = getattr(PublisherCollection, country_code, None)
         if not country_group:
             continue
+        print(f"DEBUG: Processing table for country: {country_code}")
 
         for row in table.find_all("tr"):
             cells = row.find_all("td")
@@ -87,7 +87,6 @@ def build_domain_to_publisher_map() -> dict[str, object]:
             publisher = get_publisher_by_class_name(country_group, class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-                # Print first 10 successful mappings
                 if len(domain_to_publisher) <= 10:
                     print(f"DEBUG: Mapped {domain} -> {class_name}")
 
@@ -143,6 +142,9 @@ def main():
             domain = domain[4:]
         if domain in domain_to_publisher:
             supported_urls.append(url)
+        else:
+            # Optional: log unsupported domains for debugging
+            print(f"DEBUG: Unsupported domain: {domain}")
 
     print(f"Filtered down to {len(supported_urls)} supported URLs")
     if not supported_urls:
@@ -155,7 +157,7 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Setup for parallel fetching
+    # Setup session with realistic browser headers
     session = requests.Session()
     session.max_redirects = 5
     session.headers.update({
@@ -176,8 +178,11 @@ def main():
         domain = urlparse(url).netloc.lower()
         if domain.startswith("www."):
             domain = domain[4:]
+
         publisher = domain_to_publisher.get(domain)
         if publisher is None:
+            # This should not happen after filtering, but safe check
+            print(f"⚠️ No publisher found for domain: {domain} (URL: {url})")
             return url, None
 
         try:
@@ -190,8 +195,7 @@ def main():
             print(f"❌ Network error for {url}: {e}")
             return url, None
 
-        # Using the ParserProxy correctly
-        # The ParserProxy is designed to be instantiated with a publisher instance.
+        # ✅ Correct usage: ParserProxy expects a Publisher object
         parser = ParserProxy(publisher)
         try:
             article = parser.parse(resp.text, url)
