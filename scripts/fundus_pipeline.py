@@ -18,30 +18,23 @@ from fundus.parser import ParserProxy
 
 # --- Domain Map Builder (Reliable method) ---
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Parse supported_publishers.md and return domain -> Publisher object."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
     response = requests.get(url, timeout=15)
     response.raise_for_status()
     
     domain_to_publisher = {}
-    # Pattern matches: "- **Publisher Name** (domain1.com, domain2.org)"
-    pattern = r"- \*\*(.+?)\*\* \(([^)]+)\)"
+    # Pattern matches the format: 【数字† domain †domain】
+    pattern = r"【\d+†\s*([^\s†]+)\s*†\s*([^\s†]+)】"
     
     for line in response.text.splitlines():
         match = re.search(pattern, line)
         if match:
-            pub_name = match.group(1)
-            domains_str = match.group(2)
-            domains = [d.strip() for d in domains_str.split(",")]
-            
-            # Find the actual Publisher object by name
-            for country_group in PublisherCollection:
-                for publisher in country_group:
-                    if publisher.__name__ == pub_name:
-                        for domain in domains:
-                            clean_domain = domain.lower().replace('www.', '')
-                            domain_to_publisher[clean_domain] = publisher
-                        break
+            domain = match.group(1).replace("www.", "")
+            # Look up the actual Publisher object (you'll need to match by domain)
+            # This part still requires you to know which publisher the domain belongs to
+            # which is why Option 1 is simpler
+            domain_to_publisher[domain] = None  # Placeholder
+    
     return domain_to_publisher
 
 
