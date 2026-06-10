@@ -12,7 +12,7 @@ import os
 import json
 import sys
 import time
-import re                      # <-- ADDED
+import re                      
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
