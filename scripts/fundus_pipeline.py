@@ -51,7 +51,7 @@ def build_domain_to_publisher_map() -> dict[str, object]:
 
     domain_to_publisher = {}
     # Find all tables with class starting with "publishers"
-    tables = soup.find_all("table", class_=re.compile(r"^publishers"))
+    tables = soup.find_all("table")
     for table in tables:
         for row in table.find_all("tr"):
             cells = row.find_all("td")
