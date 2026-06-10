@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fundus article extraction for WorldHUD – Parser-based pipeline.
 
-- Parses the RAW Markdown file (supported_publishers.md) to build a domain → publisher map.
+- Scrapes the official GitHub 'supported_publishers.md' page to build a domain→publisher map.
 - Filters GDELT URLs by domain lookup.
 - Fetches HTML in parallel and extracts text with per-publisher Parsers.
 - Handles redirect loops, timeouts, and other errors gracefully.
@@ -12,12 +12,12 @@ import os
 import json
 import sys
 import time
-import re
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 import requests
+from bs4 import BeautifulSoup
 from requests.exceptions import TooManyRedirects
 
 from fundus import PublisherCollection
@@ -25,20 +25,25 @@ from fundus.parser import ParserProxy
 
 
 # ---------------------------------------------------------------------------
-# Build a domain → publisher map from the official supported_publishers.md
+# Build a domain → publisher map from the official supported_publishers.md page
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    # Use the RAW Markdown file
-    url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
+    """
+    Fetch the GitHub page that shows the supported publishers table,
+    extract the class name and domain for each publisher, and build a
+    mapping from cleaned domain to the actual Fundus Publisher object.
+    """
+    # GitHub's rendered HTML page is much easier to parse than the raw file
+    url = "https://github.com/flairNLP/fundus/blob/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
-        content = response.text
+        soup = BeautifulSoup(response.text, "html.parser")
     except Exception as e:
         print(f"Error fetching publisher list: {e}")
         return {}
 
-    # Map class name → Publisher object
+    # First, build a lookup from class name (e.g., 'DerStandard') to Publisher object
     class_to_publisher = {}
     for country_code in dir(PublisherCollection):
         if country_code.startswith("_"):
@@ -48,42 +53,43 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         for publisher in publishers:
             class_to_publisher[publisher.__name__] = publisher
 
+    # Now parse the HTML table
     domain_to_publisher = {}
-    lines = content.splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        # Look for a line that starts and ends with a backtick (the class name)
-        if line.startswith("`") and line.endswith("`"):
-            class_name = line[1:-1]
-            print(f"DEBUG: Found class name: {class_name}")
+    # Locate the main table – it has the class "markdown-body" and contains the publisher list
+    # The table structure is a standard HTML `<table>` inside the markdown body.
+    # We'll find all rows in the table body.
+    table = soup.find("table")
+    if not table:
+        print("Error: Could not find the publishers table.")
+        return {}
 
-            # The domain line is 2 lines below the class name line (index i+2)
-            if i + 2 < len(lines):
-                domain_line = lines[i + 2].strip()
-                print(f"DEBUG: Domain line (raw): '{domain_line}'")
-                
-                # Match the pattern: 【数字† domain1 †domain2】
-                match = re.search(r"【\d+†\s*([^\s†]+)", domain_line)
-                if match:
-                    raw_domain = match.group(1)
-                    print(f"DEBUG: Extracted raw domain: '{raw_domain}'")
-                    
-                    domain = raw_domain.lower()
-                    if domain.startswith("www."):
-                        domain = domain[4:]
+    # Iterate through each row in the table body
+    for row in table.find_all("tr"):
+        cells = row.find_all("td")
+        if len(cells) < 3:
+            continue
 
-                    publisher = class_to_publisher.get(class_name)
-                    if publisher:
-                        domain_to_publisher[domain] = publisher
-                        print(f"DEBUG: Added mapping: '{domain}' -> {class_name}")
-                    else:
-                        print(f"DEBUG: No publisher found for class: {class_name}")
-                else:
-                    print(f"DEBUG: No regex match on domain line: '{domain_line}'")
-            else:
-                print(f"DEBUG: Not enough lines after class name (i={i})")
-        i += 1
+        # The class name is in the first column, wrapped in a <code> tag
+        code_tag = cells[0].find("code")
+        if not code_tag:
+            continue
+        class_name = code_tag.get_text(strip=True)
+
+        # The domain is in the third column, inside an <a> tag's href attribute
+        a_tag = cells[2].find("a")
+        if not a_tag:
+            continue
+        href = a_tag.get("href", "")
+        if not href.startswith("https://"):
+            continue
+
+        # Extract the domain from the href
+        raw_domain = href.split("//")[1].split("/")[0].lower()
+        clean_domain = raw_domain[4:] if raw_domain.startswith("www.") else raw_domain
+
+        publisher = class_to_publisher.get(class_name)
+        if publisher:
+            domain_to_publisher[clean_domain] = publisher
 
     print(f"Built domain->publisher map with {len(domain_to_publisher)} entries")
     if len(domain_to_publisher) == 0:
@@ -95,6 +101,7 @@ def build_domain_to_publisher_map() -> dict[str, object]:
 # Duplicate guard – check if output file already exists in GitHub release
 # ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str, prefix: str = "fundus_") -> bool:
+    """Return True if the output file already exists in the GitHub release."""
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/{prefix}{timestamp}.json"
     try:
         req = urllib.request.Request(url, method="HEAD")
@@ -224,5 +231,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Only the main function is called here
     main()
