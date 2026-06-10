@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Final working pipeline.
+"""Fundus article extraction for WorldHUD – Final pipeline.
 
 - Parses the raw HTML table to build a domain→publisher map.
 - Filters GDELT URLs by domain lookup.
 - Fetches HTML in parallel with realistic browser headers.
-- Extracts text using ParserProxy (auto-detects publisher from URL).
+- Extracts text using ParserProxy (auto‑detects publisher from URL).
 - Handles errors and saves partial results.
 """
 
@@ -20,8 +20,10 @@ import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import TooManyRedirects
 
+# Import Fundus – this loads all publishers and parsers automatically
+import fundus
 from fundus import PublisherCollection
-from fundus.parser import ParserProxy  # ✅ Correct import
+from fundus.parser import ParserProxy
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +51,6 @@ def build_domain_to_publisher_map() -> dict[str, object]:
 
     domain_to_publisher = {}
     tables = soup.find_all("table")
-    print(f"DEBUG: Found {len(tables)} tables")
     for table in tables:
         # Extract country code from table class (e.g., 'at', 'us')
         country_code = None
@@ -65,7 +66,6 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         country_group = getattr(PublisherCollection, country_code, None)
         if not country_group:
             continue
-        print(f"DEBUG: Processing table for country: {country_code}")
 
         for row in table.find_all("tr"):
             cells = row.find_all("td")
@@ -87,8 +87,6 @@ def build_domain_to_publisher_map() -> dict[str, object]:
             publisher = get_publisher_by_class_name(country_group, class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-                if len(domain_to_publisher) <= 10:
-                    print(f"DEBUG: Mapped {domain} -> {class_name}")
 
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
     return domain_to_publisher
@@ -142,9 +140,6 @@ def main():
             domain = domain[4:]
         if domain in domain_to_publisher:
             supported_urls.append(url)
-        else:
-            # Optional: log unsupported domains for debugging
-            print(f"DEBUG: Unsupported domain: {domain}")
 
     print(f"Filtered down to {len(supported_urls)} supported URLs")
     if not supported_urls:
@@ -185,8 +180,7 @@ def main():
             print(f"❌ Network error for {url}: {e}")
             return url, None
 
-        # ✅ Correct: ParserProxy takes no arguments
-        # The parse method will auto-detect the correct publisher from the URL.
+        # ParserProxy auto‑detects the publisher from the URL
         parser = ParserProxy()
         try:
             article = parser.parse(resp.text, url)
