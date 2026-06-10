@@ -56,9 +56,10 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         if line.startswith("`") and line.endswith("`"):
             class_name = line[1:-1]  # Remove the backticks
 
-            # The domain line is two lines below the class name line
-            if i + 3 < len(lines):
-                domain_line = lines[i + 3].strip()
+            # The domain line is 4 lines below the class name line
+            # (because of the blank line, name line, blank line, then domain line)
+            if i + 4 < len(lines):
+                domain_line = lines[i + 4].strip()
                 # Match the pattern: 【数字† domain1 †domain2】
                 match = re.search(r"【\d+†\s*([^\s†]+)", domain_line)
                 if match:
