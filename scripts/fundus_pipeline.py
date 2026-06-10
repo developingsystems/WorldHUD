@@ -27,38 +27,23 @@ from fundus.parser import ParserProxy
 # Helper: Build domain → Publisher map by iterating PublisherCollection
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    """Build a reliable domain->publisher map by correctly iterating over
-    PublisherCollection's structure."""
     domain_to_publisher = {}
-
-    # 1. Get all the country code attributes (like 'us', 'de', 'uk')
-    # from the PublisherCollection class.
-    country_codes = [attr for attr in dir(PublisherCollection) if not attr.startswith('_')]
-
-    for country in country_codes:
-        # 2. Get the publisher group for this country.
-        publisher_group = getattr(PublisherCollection, country)
-
-        # 3. A publisher group can be a list of publishers or a single publisher.
-        #    Convert it to a list for uniform processing.
-        publishers = publisher_group if isinstance(publisher_group, list) else [publisher_group]
-
-        for publisher in publishers:
-            # 4. Access the publisher's internal `_domains` attribute.
-            #    This is the most reliable source, even if it is technically private.
-            domains = getattr(publisher, '_domains', [])
-            for domain in domains:
-                clean_domain = domain.lower().replace('www.', '')
-                domain_to_publisher[clean_domain] = publisher
-
-    # Debugging output: print the size of the map and a few samples.
+    for country_code in dir(PublisherCollection):
+        if country_code.startswith("_"):
+            continue
+        country_group = getattr(PublisherCollection, country_code)
+        # Ensure we're working with a list of publishers
+        if not hasattr(country_group, "__iter__"):
+            country_group = [country_group]
+        for publisher in country_group:
+            # The domain list is stored in the publisher's _source.domains
+            if hasattr(publisher, "_source") and hasattr(publisher._source, "domains"):
+                for domain in publisher._source.domains:
+                    clean_domain = domain.lower()
+                    if clean_domain.startswith("www."):
+                        clean_domain = clean_domain[4:]
+                    domain_to_publisher[clean_domain] = publisher
     print(f"  Built domain→publisher map with {len(domain_to_publisher)} entries")
-    sample = list(domain_to_publisher.keys())[:10]
-    if sample:
-        print(f"  Sample domains: {', '.join(sample)}")
-    else:
-        # If the map is still empty, we print a diagnostic message.
-        print("  [Diagnostic] The domain map is empty. Please check your Fundus installation.")
     return domain_to_publisher
 
 
