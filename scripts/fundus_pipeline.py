@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fundus article extraction for WorldHUD – Parser-based pipeline.
 
-- Parses supported_publishers.md as a Markdown table to build a domain → publisher map.
+- Parses the RAW Markdown file (supported_publishers.md) to build a domain → publisher map.
 - Filters GDELT URLs by domain lookup.
 - Fetches HTML in parallel and extracts text with per-publisher Parsers.
 - Handles redirect loops, timeouts, and other errors gracefully.
@@ -28,7 +28,8 @@ from fundus.parser import ParserProxy
 # Build a domain → publisher map from the official supported_publishers.md
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
-    url = "https://raw.githubusercontent.com/flairNLP/fundus/master/docs/supported_publishers.md"
+    # Use the RAW Markdown file
+    url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
@@ -56,9 +57,9 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         if line.startswith("`") and line.endswith("`"):
             class_name = line[1:-1]  # Remove the backticks
 
-            # The domain line is 4 lines below the class name line
-            if i + 4 < len(lines):
-                domain_line = lines[i + 4].strip()
+            # The domain line is the very next line (i + 1)
+            if i + 1 < len(lines):
+                domain_line = lines[i + 1].strip()
                 # Match the pattern: 【数字† domain1 †domain2】
                 match = re.search(r"【\d+†\s*([^\s†]+)", domain_line)
                 if match:
@@ -211,5 +212,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # Only the main function is called here – no duplicate diagnostic call
+    # Only the main function is called here
     main()
