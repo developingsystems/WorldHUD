@@ -169,34 +169,42 @@ def main():
     processed = 0
     start_time = time.time()
 
-    def fetch_and_parse(url: str) -> tuple[str, str | None]:
-        try:
-            resp = session.get(url, timeout=15)
-            resp.raise_for_status()
-        except TooManyRedirects:
-            print(f"🚫 Redirect loop: {url}")
-            return url, None
-        except Exception as e:
-            print(f"❌ Network error for {url}: {e}")
-            return url, None
+def fetch_and_parse(url: str) -> tuple[str, str | None]:
+    domain = urlparse(url).netloc.lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
 
-        # ParserProxy auto‑detects the publisher from the URL
-        parser = ParserProxy()
-        try:
-            article = parser.parse(resp.text, url)
-            if article.body and article.body.text:
-                return url, article.body.text
-            else:
-                reasons = []
-                if not article.body:
-                    reasons.append("no body")
-                elif not article.body.text:
-                    reasons.append("no extractable text")
-                print(f"⚠️ Extraction failed for {url}: {', '.join(reasons)}")
-                return url, None
-        except Exception as e:
-            print(f"❌ Parsing error for {url}: {e}")
+    # Get the Publisher object from your map (built by build_domain_to_publisher_map)
+    publisher = domain_to_publisher.get(domain)
+    if publisher is None:
+        return url, None
+
+    # Fetch the article HTML
+    try:
+        resp = session.get(url, timeout=15)
+        resp.raise_for_status()
+        html = resp.text
+    except TooManyRedirects:
+        print(f"🚫 Redirect loop: {url}")
+        return url, None
+    except Exception as e:
+        print(f"❌ Network error for {url}: {e}")
+        return url, None
+
+    # Get the correct parser class for this publisher and parse the article.
+    # This is the missing link you've been looking for.
+    parser_class = publisher.parser
+    parser = parser_class()
+    try:
+        article = parser.parse(html, url)
+        if article.body and article.body.text:
+            return url, article.body.text
+        else:
+            print(f"⚠️ Extraction failed for {url}: no extractable text")
             return url, None
+    except Exception as e:
+        print(f"❌ Parsing error for {url}: {e}")
+        return url, None
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_url = {executor.submit(fetch_and_parse, url): url for url in supported_urls}
