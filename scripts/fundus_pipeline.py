@@ -4,7 +4,7 @@
 - Parses the raw HTML table to build a domain→publisher map.
 - Filters GDELT URLs by domain lookup.
 - Fetches HTML in parallel with realistic browser headers.
-- Extracts text using ParserProxy (requires valid Publisher object).
+- Extracts text using ParserProxy (auto-detects publisher from URL).
 - Handles errors and saves partial results.
 """
 
@@ -21,7 +21,7 @@ from bs4 import BeautifulSoup
 from requests.exceptions import TooManyRedirects
 
 from fundus import PublisherCollection
-from fundus.parser import ParserProxy
+from fundus.parser import ParserProxy  # ✅ Correct import
 
 
 # ---------------------------------------------------------------------------
@@ -175,16 +175,6 @@ def main():
     start_time = time.time()
 
     def fetch_and_parse(url: str) -> tuple[str, str | None]:
-        domain = urlparse(url).netloc.lower()
-        if domain.startswith("www."):
-            domain = domain[4:]
-
-        publisher = domain_to_publisher.get(domain)
-        if publisher is None:
-            # This should not happen after filtering, but safe check
-            print(f"⚠️ No publisher found for domain: {domain} (URL: {url})")
-            return url, None
-
         try:
             resp = session.get(url, timeout=15)
             resp.raise_for_status()
@@ -195,8 +185,9 @@ def main():
             print(f"❌ Network error for {url}: {e}")
             return url, None
 
-        # ✅ Correct usage: ParserProxy expects a Publisher object
-        parser = ParserProxy(publisher)
+        # ✅ Correct: ParserProxy takes no arguments
+        # The parse method will auto-detect the correct publisher from the URL.
+        parser = ParserProxy()
         try:
             article = parser.parse(resp.text, url)
             if article.body and article.body.text:
