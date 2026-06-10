@@ -29,6 +29,7 @@ from fundus.parser import ParserProxy
 # Build a domain → publisher map from the raw HTML file
 # ---------------------------------------------------------------------------
 def build_domain_to_publisher_map() -> dict[str, object]:
+    import re
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         response = requests.get(url, timeout=15)
@@ -38,69 +39,75 @@ def build_domain_to_publisher_map() -> dict[str, object]:
         print(f"Error fetching publisher list: {e}")
         return {}
 
-    # Map class name → Publisher object
-    class_to_publisher = {}
-    for country_code in dir(PublisherCollection):
-        if country_code.startswith("_"):
-            continue
-        group = getattr(PublisherCollection, country_code)
+    # Directly retrieve the publisher by its class name from the PublisherCollection
+    def get_publisher_by_class_name(country_group, class_name):
+        """
+        Attempt to retrieve a publisher from the country group using the exact
+        class name as an attribute.
+        """
         try:
-            for publisher in group:
-                name = getattr(publisher, 'name', None) or getattr(publisher, '__name__', None)
-                if name:
-                    class_to_publisher[name] = publisher
-        except TypeError:
-            name = getattr(group, 'name', None) or getattr(group, '__name__', None)
-            if name:
-                class_to_publisher[name] = group
-
-    # Debug: show first 20 keys
-    print("DEBUG: class_to_publisher sample keys (first 20):")
-    sample_keys = list(class_to_publisher.keys())[:20]
-    for k in sample_keys:
-        print(f"    {k}")
+            # Assume the publisher is directly accessible as an attribute
+            return getattr(country_group, class_name)
+        except AttributeError:
+            # Fallback: If it's a list, search for it (though this should not be necessary)
+            if isinstance(country_group, list):
+                for pub in country_group:
+                    if pub.__name__ == class_name:
+                        return pub
+            return None
 
     domain_to_publisher = {}
     tables = soup.find_all("table")
-    print(f"DEBUG: Found {len(tables)} tables")
-    for table_idx, table in enumerate(tables):
-        rows = table.find_all("tr")
-        print(f"DEBUG: Table {table_idx} has {len(rows)} rows")
-        for row in rows:
+    for table in tables:
+        # Get the country code from the table's class (e.g., 'at', 'us')
+        country_code = None
+        for class_name in table.get('class', []):
+            if class_name in ['at', 'au', 'be', 'ca', 'ch', 'cn', 'cz', 'de', 'dk', 'es', 'fr', 'gl', 'id', 'il', 'ind', 'isl', 'it', 'jp', 'kr', 'lb', 'li', 'ls', 'lt', 'lu', 'mx', 'my', 'na', 'no', 'pl', 'pt', 'py', 'ru', 'se', 'tr', 'tw', 'tz', 'ua', 'uk', 'us', 'vn', 'za']:
+                country_code = class_name
+                break
+
+        if country_code is None:
+            continue
+
+        country_group = getattr(PublisherCollection, country_code, None)
+        if country_group is None:
+            continue
+
+        for row in table.find_all("tr"):
             cells = row.find_all("td")
             if len(cells) < 3:
                 continue
+
+            # Class name is in the first cell, inside the <code> tag
             code_tag = cells[0].find("code")
             if not code_tag:
                 continue
-            class_name = code_tag.get_text(strip=True)
+            class_name = code_tag.get_text(strip=True)  # e.g., 'DerStandard'
+
+            # Domain is in the third cell, inside the <a> tag
             a_tag = cells[2].find("a")
             if not a_tag:
                 continue
             href = a_tag.get("href", "")
             if not href.startswith("https://"):
                 continue
+
+            # Clean and get the domain
             domain = href.split("//")[1].split("/")[0].lower()
             if domain.startswith("www."):
                 domain = domain[4:]
-            publisher = class_to_publisher.get(class_name)
+
+            # Get the publisher object using the class name
+            publisher = get_publisher_by_class_name(country_group, class_name)
             if publisher:
                 domain_to_publisher[domain] = publisher
-                # Print first 10 successful mappings
                 if len(domain_to_publisher) <= 10:
                     print(f"DEBUG: Mapped {domain} -> {class_name}")
             else:
-                # Print first 10 missing class names
-                if len([c for c in class_to_publisher if c == class_name]) == 0:
-                    if 'missing_logged' not in locals():
-                        missing_logged = set()
-                    if class_name not in missing_logged and len(missing_logged) < 10:
-                        print(f"DEBUG: Missing class_name: {class_name}")
-                        missing_logged.add(class_name)
+                if len(domain_to_publisher) == 0:
+                    print(f"DEBUG: Could not find publisher for class '{class_name}' in {country_code}")
 
     print(f"Built domain→publisher map with {len(domain_to_publisher)} entries")
-    if len(domain_to_publisher) == 0:
-        print("  [Diagnostic] Domain map is empty. Check class_to_publisher keys vs extracted class names.")
     return domain_to_publisher
 
 
