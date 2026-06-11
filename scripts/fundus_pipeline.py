@@ -99,7 +99,6 @@ def main():
 
     domain_to_pub = build_domain_publisher_map()
 
-    # Filter supported URLs
     supported = []
     for url in urls:
         domain = urlparse(url).netloc.lower()
@@ -119,7 +118,6 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Setup HTTP session
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -142,7 +140,8 @@ def main():
             # Get the parser class from the publisher object
             parser_class = publisher.parser
             parser = parser_class()
-            result = parser.parse(html, url)
+            # NOTE: Do NOT pass the URL as second argument; it is not expected.
+            result = parser.parse(html)   # <-- FIXED: removed url argument
 
             # Handle result (could be Article object or dict)
             text = None
@@ -177,7 +176,6 @@ def main():
             import traceback
             traceback.print_exc()
 
-    # Save results
     output_path = f"articles/fundus_{timestamp}.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(articles, f, ensure_ascii=False, indent=2)
