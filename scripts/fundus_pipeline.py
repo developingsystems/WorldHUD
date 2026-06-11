@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Fundus article extraction for WorldHUD – Crawler-based pipeline.
-
-- Builds a set of supported domains from the HTML table.
-- Filters input URLs to those from supported domains.
-- Uses a Crawler with url_filter (passed to crawl) to extract only the target articles.
-"""
+"""Fundus article extraction for WorldHUD – Crawler-based pipeline with JSON serialization fix."""
 
 import os
 import json
@@ -18,11 +13,7 @@ from bs4 import BeautifulSoup
 from fundus import PublisherCollection, Crawler
 
 
-# ---------------------------------------------------------------------------
-# Build a set of supported domains from the raw HTML file
-# ---------------------------------------------------------------------------
 def build_supported_domains() -> set[str]:
-    """Parse the supported_publishers.md HTML table and return a set of supported domains."""
     url = "https://raw.githubusercontent.com/flairNLP/fundus/refs/heads/master/docs/supported_publishers.md"
     try:
         resp = requests.get(url, timeout=15)
@@ -31,7 +22,6 @@ def build_supported_domains() -> set[str]:
     except Exception as e:
         print(f"Error fetching publisher list: {e}")
         return set()
-
     domains = set()
     tables = soup.find_all("table")
     for table in tables:
@@ -49,14 +39,10 @@ def build_supported_domains() -> set[str]:
             if domain.startswith("www."):
                 domain = domain[4:]
             domains.add(domain)
-
     print(f"Built supported domains set with {len(domains)} entries")
     return domains
 
 
-# ---------------------------------------------------------------------------
-# Duplicate guard – check if output file already exists in GitHub release
-# ---------------------------------------------------------------------------
 def article_json_exists(timestamp: str) -> bool:
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/fundus_{timestamp}.json"
     try:
@@ -67,9 +53,6 @@ def article_json_exists(timestamp: str) -> bool:
         return False
 
 
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
 def main():
     os.makedirs("articles", exist_ok=True)
 
@@ -92,10 +75,7 @@ def main():
 
     print(f"Fundus extraction for chunk {timestamp} – {len(urls)} URLs")
 
-    # Build the set of supported domains
     supported_domains = build_supported_domains()
-
-    # Filter URLs by supported domains
     target_urls = set()
     for url in urls:
         domain = urlparse(url).netloc.lower()
@@ -114,22 +94,28 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Initialize the crawler (no filter here)
     crawler = Crawler(PublisherCollection)
-
-    # Collect the results
     articles: dict[str, str] = {}
     start_time = time.time()
 
-    # The url_filter is passed to crawl(). It tells the crawler to keep only URLs
-    # that are in our target set. This is the correct placement.
     for article in crawler.crawl(max_articles=len(target_urls), timeout=30,
                                  url_filter=lambda url: url in target_urls):
-        if article.body and article.body.text:
-            articles[article.html.requested_url] = article.body.text
+        # Extract the article text safely
+        try:
+            # article.body.text could be a property or a method
+            body_text = article.body.text
+            if callable(body_text):
+                body_text = body_text()
+            text = str(body_text) if body_text else ""
+        except Exception as e:
+            print(f"⚠️ Could not extract text for {article.html.requested_url}: {e}")
+            continue
+
+        if text and len(text) > 50:
+            articles[article.html.requested_url] = text
             print(f"✅ Extracted: {article.html.requested_url[:80]}...")
         else:
-            print(f"⚠️ Extraction failed for: {article.html.requested_url}")
+            print(f"⚠️ Extraction failed for: {article.html.requested_url} (text too short or empty)")
 
     output_path = f"articles/fundus_{timestamp}.json"
     with open(output_path, "w", encoding="utf-8") as f:
