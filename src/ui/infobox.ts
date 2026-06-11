@@ -1,5 +1,6 @@
 import { Viewer, Entity } from 'cesium';
 import DOMPurify, { type Config } from 'dompurify';
+import { marked } from 'marked';  // <-- new import
 import { getVerb, getRootVerbPast } from '../data/cameoverbs.js';
 
 // =============================================================================
@@ -107,8 +108,7 @@ type ArticleSources = Map<string, { fundus?: unknown; gdeltnews?: unknown; trafi
 // Helper: Choose best source based on priority and 30% gdeltnews advantage
 // -----------------------------------------------------------------------------
 // Priority order: Fundus > Trafilatura > gdeltnews.
-// But if gdeltnews text is at least 30% longer than the current best, switch to gdeltnews.
-// Returns the selected source key and its text (for length comparison).
+// But if gdeltnews text is at least 50% longer than the current best, switch to gdeltnews.
 // =============================================================================
 function selectBestSource(sources: {
   fundus?: unknown;
@@ -136,12 +136,41 @@ function selectBestSource(sources: {
     return null;
   }
 
-  // If gdeltnews exists and is at least 30% longer than the best text, override
+  // If gdeltnews exists and is at least 50% longer than the best text, override
   if (gdeltnewsText && bestText && gdeltnewsText.length >= 1.5 * bestText.length) {
     return { source: 'gdeltnews', text: gdeltnewsText };
   }
 
   return bestSource ? { source: bestSource, text: bestText } : null;
+}
+
+// =============================================================================
+// Helper: Render Markdown to HTML (synchronous, sanitized)
+// =============================================================================
+function renderMarkdown(markdown: string): string {
+  if (!markdown) return '';
+  try {
+    // Convert Markdown to HTML synchronously
+    const rawHtml = marked.parse(markdown, { async: false }) as string;
+    // Sanitize the HTML (XSS protection)
+    return DOMPurify.sanitize(rawHtml, GDELT_DOMPURIFY_CONFIG);
+  } catch (error) {
+    console.error('Markdown rendering failed:', error);
+    // Fallback: return escaped text
+    return escapeHtml(markdown);
+  }
+}
+
+// =============================================================================
+// Helper: Escape HTML special characters (for plain text fallback)
+// =============================================================================
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // =============================================================================
@@ -161,7 +190,7 @@ function renderGdelt(
 
   const sources = articleSources.get(sourceUrl) || {};
   let rawTitle = '';
-  let articleText = '';
+  let articleHtml = '';
 
   // --- Title & Text based on current source ---
   if (currentSource === 'trafilatura' && sources.trafilatura && typeof sources.trafilatura === 'object') {
@@ -169,25 +198,28 @@ function renderGdelt(
     const traf = sources.trafilatura as any;
     const titleFromTraf = traf.title || (headlines && headlines[0]) || 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(titleFromTraf)}</a>`;
-    articleText = traf.text || '';
+    const markdownText = traf.text || '';
+    articleHtml = renderMarkdown(markdownText);
   } else if (currentSource === 'trafilatura' && typeof sources.trafilatura === 'string') {
     // Plain string fallback (if pipeline saved only text)
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
-    articleText = sources.trafilatura;
+    articleHtml = renderMarkdown(sources.trafilatura);
   } else if (currentSource === 'gdeltnews' && sources.gdeltnews) {
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
-    articleText = getTextFromSource(sources.gdeltnews);
+    const plainText = getTextFromSource(sources.gdeltnews);
+    articleHtml = `<p>${esc(plainText)}</p>`;
   } else if (currentSource === 'fundus' && sources.fundus) {
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
-    articleText = getTextFromSource(sources.fundus);
+    const plainText = getTextFromSource(sources.fundus);
+    articleHtml = `<p>${esc(plainText)}</p>`;
   } else {
     // Fallback: just use first headline and empty text
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
-    articleText = '';
+    articleHtml = '<p style="color: gray;">Article text not yet available for this source.</p>';
   }
 
   // --- Events list (unchanged) ---
@@ -220,7 +252,7 @@ function renderGdelt(
       ${eventsHtml}
       <hr>
       <div class="infobox-article">
-        ${articleText ? `<p>${esc(articleText)}</p>` : '<p style="color: gray;">Article text not yet available for this source.</p>'}
+        ${articleHtml}
       </div>
       <hr>
       <p class="infobox-uuid">Entity UUID: ${esc(entityId)}</p>
@@ -231,7 +263,7 @@ function renderGdelt(
 }
 
 // =============================================================================
-// InfoBox class
+// InfoBox class (unchanged except for using renderMarkdown)
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -273,7 +305,7 @@ export class InfoBox {
           max-height: 40vh;
           overflow-y: auto;
           margin-top: 8px;
-          white-space: pre-wrap;
+          white-space: normal;
         }
         .infobox-source-select {
           width: 100%;
@@ -342,7 +374,7 @@ export class InfoBox {
     };
     this.currentSnapshot = snapshot;
 
-    // Select best source using priority + 30% gdeltnews rule
+    // Select best source using priority + 50% gdeltnews rule
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
     const best = selectBestSource(sources);
     if (best) {
