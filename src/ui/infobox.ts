@@ -71,6 +71,20 @@ function sanitize(html: string): string {
 }
 
 // =============================================================================
+// Helper: Extract article text from any source format (string or object)
+// =============================================================================
+function getTextFromSource(sourceEntry: unknown): string {
+  if (!sourceEntry) return '';
+  if (typeof sourceEntry === 'string') return sourceEntry;
+  if (typeof sourceEntry === 'object' && sourceEntry !== null) {
+    if ('text' in sourceEntry && typeof sourceEntry.text === 'string') return sourceEntry.text;
+    if ('content' in sourceEntry && typeof sourceEntry.content === 'string') return sourceEntry.content;
+    return JSON.stringify(sourceEntry);
+  }
+  return '';
+}
+
+// =============================================================================
 // Snapshot type – captured when an entity is selected
 // =============================================================================
 interface Snapshot {
@@ -84,16 +98,14 @@ interface Snapshot {
   numMentions: number;
   tone: number;
   entityId: string;
-  /** The article map at the moment of capture – ensures the event list is never lost */
   articleMap: Map<string, Record<string, unknown>[]>;
 }
 
-// =============================================================================
-// Template: GDELT event – shows all events from the same article
-// =============================================================================
+type ArticleSources = Map<string, { fundus?: unknown; gdeltnews?: unknown; trafilatura?: unknown }>;
 
-type ArticleSources = Map<string, { fundus?: string; gdeltnews?: string; trafilatura?: string }>;
-
+// =============================================================================
+// Render function with rich Trafilatura support and fallback
+// =============================================================================
 function renderGdelt(
   snapshot: Snapshot,
   articleMap: Map<string, Record<string, unknown>[]>,
@@ -101,20 +113,51 @@ function renderGdelt(
   currentSource: 'fundus' | 'gdeltnews' | 'trafilatura',
 ): { title: string; body: string } {
   const { sourceUrl, headlines, globalEventId, entityId } = snapshot;
-  const headline = headlines[0] || 'GDELT Event';
+  const esc = (s: unknown): string => {
+    const str = s == null ? '' : String(s);
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  };
 
-  const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const sources = articleSources.get(sourceUrl) || {};
+  let rawTitle = '';
+  let articleText = '';
 
-  const safeUrl = esc(sourceUrl);
-  const safeHeadline = esc(headline);
+  // ---- Title & Text based on current source ----
+  if (currentSource === 'trafilatura' && sources.trafilatura && typeof sources.trafilatura === 'object') {
+    // Rich Trafilatura JSON
+    const traf = sources.trafilatura as any;
+    const titleFromTraf = traf.title || (headlines && headlines[0]) || 'GDELT Event';
+    rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(titleFromTraf)}</a>`;
+    articleText = traf.text || '';
+    // Optional: if text is too short, fall back to gdeltnews (if available)
+    if (articleText.length < 200 && sources.gdeltnews) {
+      const gdeltText = getTextFromSource(sources.gdeltnews);
+      if (gdeltText.length > articleText.length) {
+        articleText = gdeltText;
+        // Optionally change the displayed source name? Not necessary; user can see dropdown.
+      }
+    }
+  } else if (currentSource === 'trafilatura' && typeof sources.trafilatura === 'string') {
+    // Plain string fallback (if pipeline saved only text)
+    const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
+    rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
+    articleText = sources.trafilatura;
+  } else if (currentSource === 'gdeltnews' && sources.gdeltnews) {
+    const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
+    rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
+    articleText = getTextFromSource(sources.gdeltnews);
+  } else if (currentSource === 'fundus' && sources.fundus) {
+    const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
+    rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
+    articleText = getTextFromSource(sources.fundus);
+  } else {
+    // Fallback: just use first headline and empty text
+    const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
+    rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
+    articleText = '';
+  }
 
-  // Title HTML – clickable headline
-  const rawTitle = `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${safeHeadline}</a>`;
-  const title = sanitize(rawTitle);
-
-  // Body: all events from this article, compact format
-  // Use the snapshot's frozen article map, falling back to the live map if needed
+  // ---- Events list (unchanged) ----
   const siblings = snapshot.articleMap.get(sourceUrl) || articleMap.get(sourceUrl) || [];
   let eventsHtml = '';
   siblings.forEach((evt) => {
@@ -133,14 +176,12 @@ function renderGdelt(
 
     eventsHtml += `
       <div style="${highlightStyle} margin-bottom: 7px; font-size: 12px;" title="Global Event ID: ${esc(gid)}">
-                <strong>${esc(a1)} <span title="${esc(getVerb(code))}">${esc(getRootVerbPast(code))}</span> ${esc(a2)}</strong> | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
+        <strong>${esc(a1)} <span title="${esc(getVerb(code))}">${esc(getRootVerbPast(code))}</span> ${esc(a2)}</strong>
+        | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
       </div>`;
   });
 
-  // Full‑text article from the currently selected source
-  const sources = articleSources.get(sourceUrl) || {};
-  const articleText = sources[currentSource] || sources.gdeltnews || sources.fundus || sources.trafilatura || '';
-
+  const title = sanitize(rawTitle);
   const rawBody = `
     <div class="infobox-body">
       ${eventsHtml}
@@ -152,13 +193,12 @@ function renderGdelt(
       <p class="infobox-uuid">Entity UUID: ${esc(entityId)}</p>
     </div>
   `;
-
   const body = sanitize(rawBody);
   return { title, body };
 }
 
 // =============================================================================
-// InfoBox class
+// InfoBox class (unchanged except for using getTextFromSource in best‑source selection)
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -236,7 +276,7 @@ export class InfoBox {
     `;
     viewer.container.appendChild(this.container);
 
-    // Build dropdown (visible only when an entity is selected)
+    // Build dropdown
     this.dropdown = document.createElement('select');
     this.dropdown.className = 'infobox-source-select';
     this.dropdown.style.display = 'none';
@@ -245,17 +285,14 @@ export class InfoBox {
       this.refreshArticle();
     });
 
-    // Listen for entity selection changes
     this.removeListener = viewer.selectedEntityChanged.addEventListener(
       (entity: Entity | undefined) => this.onSelectionChanged(entity),
     );
   }
 
   private onSelectionChanged(entity: Entity | undefined): void {
-    // Ignore deselection – keep the current snapshot alive
     if (!entity || !entity.properties) return;
 
-    // Capture a snapshot of the entity's properties now
     const p = entity.properties.getValue() || {};
     const snapshot: Snapshot = {
       sourceUrl: (p.sourceUrl as string) || '',
@@ -268,17 +305,16 @@ export class InfoBox {
       numMentions: (p.numMentions as number) || 0,
       tone: (p.tone as number) || 0,
       entityId: entity.id,
-      // Freeze the article map so the event list is never lost
       articleMap: new Map(this.articleMap),
     };
     this.currentSnapshot = snapshot;
 
-    // Determine the best available source for this article
+    // Determine best available source by text length (using helper)
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
     const candidates: { source: 'fundus' | 'gdeltnews' | 'trafilatura'; text: string }[] = [];
-    if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
-    if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: sources.gdeltnews });
-    if (sources.trafilatura) candidates.push({ source: 'trafilatura', text: sources.trafilatura });
+    if (sources.fundus) candidates.push({ source: 'fundus', text: getTextFromSource(sources.fundus) });
+    if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: getTextFromSource(sources.gdeltnews) });
+    if (sources.trafilatura) candidates.push({ source: 'trafilatura', text: getTextFromSource(sources.trafilatura) });
     if (candidates.length > 0) {
       this.currentSource = candidates.reduce((best, cur) =>
         cur.text.length > best.text.length ? cur : best
@@ -307,7 +343,6 @@ export class InfoBox {
   private show(): void {
     this.container.innerHTML = '';
 
-    // Dropdown
     const url = this.currentSnapshot?.sourceUrl || '';
     const sources = this.articleSources.get(url) || {};
     this.dropdown.innerHTML = '';
@@ -327,13 +362,11 @@ export class InfoBox {
     this.dropdown.style.display = 'block';
     this.container.appendChild(this.dropdown);
 
-    // Title
     const titleEl = document.createElement('div');
     titleEl.style.cssText =
       'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
     titleEl.innerHTML = this.currentTitle;
 
-    // Body
     const bodyEl = document.createElement('div');
     bodyEl.className = 'infobox-body';
     bodyEl.innerHTML = this.currentBody;
@@ -343,21 +376,17 @@ export class InfoBox {
     this.container.style.display = 'block';
   }
 
-  /** Replace the underlying data and refresh if a snapshot is open. */
   updateData(
     articleMap: Map<string, Record<string, unknown>[]>,
     articleSources: ArticleSources,
   ) {
     this.articleMap = articleMap;
 
-    // Preserve article text for the currently open snapshot
     if (this.currentSnapshot) {
       const url = this.currentSnapshot.sourceUrl;
       const oldSources = this.articleSources.get(url) || {};
       const newSources = articleSources.get(url) || {};
-      // Merge: keep old texts that are not yet in the new map
       const merged = { ...oldSources, ...newSources };
-      // Replace the entry in the new map
       const updatedSources = new Map(articleSources);
       updatedSources.set(url, merged);
       this.articleSources = updatedSources;
@@ -366,12 +395,11 @@ export class InfoBox {
     }
 
     if (this.currentSnapshot) {
-      // Re‑select the best source with the new data
       const sources = this.articleSources.get(this.currentSnapshot.sourceUrl) || {};
       const candidates: { source: 'fundus' | 'gdeltnews' | 'trafilatura'; text: string }[] = [];
-      if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
-      if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: sources.gdeltnews });
-      if (sources.trafilatura) candidates.push({ source: 'trafilatura', text: sources.trafilatura });
+      if (sources.fundus) candidates.push({ source: 'fundus', text: getTextFromSource(sources.fundus) });
+      if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: getTextFromSource(sources.gdeltnews) });
+      if (sources.trafilatura) candidates.push({ source: 'trafilatura', text: getTextFromSource(sources.trafilatura) });
       if (candidates.length > 0) {
         this.currentSource = candidates.reduce((best, cur) =>
           cur.text.length > best.text.length ? cur : best
