@@ -92,13 +92,13 @@ interface Snapshot {
 // Template: GDELT event – shows all events from the same article
 // =============================================================================
 
-type ArticleSources = Map<string, { fundus?: string; gdeltnews?: string }>;
+type ArticleSources = Map<string, { fundus?: string; gdeltnews?: string; trafilatura?: string }>;
 
 function renderGdelt(
   snapshot: Snapshot,
   articleMap: Map<string, Record<string, unknown>[]>,
   articleSources: ArticleSources,
-  currentSource: 'fundus' | 'gdeltnews',
+  currentSource: 'fundus' | 'gdeltnews' | 'trafilatura',
 ): { title: string; body: string } {
   const { sourceUrl, headlines, globalEventId, entityId } = snapshot;
   const headline = headlines[0] || 'GDELT Event';
@@ -139,7 +139,7 @@ function renderGdelt(
 
   // Full‑text article from the currently selected source
   const sources = articleSources.get(sourceUrl) || {};
-  const articleText = sources[currentSource] || sources.gdeltnews || sources.fundus || '';
+  const articleText = sources[currentSource] || sources.gdeltnews || sources.fundus || sources.trafilatura || '';
 
   const rawBody = `
     <div class="infobox-body">
@@ -166,7 +166,7 @@ export class InfoBox {
   private articleMap: Map<string, Record<string, unknown>[]>;
   private articleSources: ArticleSources;
   private dropdown: HTMLSelectElement;
-  private currentSource: 'fundus' | 'gdeltnews' = 'gdeltnews';
+  private currentSource: 'fundus' | 'gdeltnews' | 'trafilatura' = 'gdeltnews';
   private currentTitle: string = '';
   private currentBody: string = '';
   private currentSnapshot: Snapshot | null = null;
@@ -241,7 +241,7 @@ export class InfoBox {
     this.dropdown.className = 'infobox-source-select';
     this.dropdown.style.display = 'none';
     this.dropdown.addEventListener('change', () => {
-      this.currentSource = this.dropdown.value as 'fundus' | 'gdeltnews';
+      this.currentSource = this.dropdown.value as 'fundus' | 'gdeltnews' | 'trafilatura';
       this.refreshArticle();
     });
 
@@ -275,9 +275,10 @@ export class InfoBox {
 
     // Determine the best available source for this article
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
-    const candidates: { source: 'fundus' | 'gdeltnews'; text: string }[] = [];
+    const candidates: { source: 'fundus' | 'gdeltnews' | 'trafilatura'; text: string }[] = [];
     if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
     if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: sources.gdeltnews });
+    if (sources.trafilatura) candidates.push({ source: 'trafilatura', text: sources.trafilatura });
     if (candidates.length > 0) {
       this.currentSource = candidates.reduce((best, cur) =>
         cur.text.length > best.text.length ? cur : best
@@ -310,9 +311,10 @@ export class InfoBox {
     const url = this.currentSnapshot?.sourceUrl || '';
     const sources = this.articleSources.get(url) || {};
     this.dropdown.innerHTML = '';
-    const options: { value: 'fundus' | 'gdeltnews'; label: string }[] = [
+    const options: { value: 'fundus' | 'gdeltnews' | 'trafilatura'; label: string }[] = [
       { value: 'fundus', label: 'Fundus' },
       { value: 'gdeltnews', label: 'gdeltnews' },
+      { value: 'trafilatura', label: 'Trafilatura' },
     ];
     options.forEach(opt => {
       const optionEl = document.createElement('option');
@@ -366,9 +368,10 @@ export class InfoBox {
     if (this.currentSnapshot) {
       // Re‑select the best source with the new data
       const sources = this.articleSources.get(this.currentSnapshot.sourceUrl) || {};
-      const candidates: { source: 'fundus' | 'gdeltnews'; text: string }[] = [];
+      const candidates: { source: 'fundus' | 'gdeltnews' | 'trafilatura'; text: string }[] = [];
       if (sources.fundus) candidates.push({ source: 'fundus', text: sources.fundus });
       if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: sources.gdeltnews });
+      if (sources.trafilatura) candidates.push({ source: 'trafilatura', text: sources.trafilatura });
       if (candidates.length > 0) {
         this.currentSource = candidates.reduce((best, cur) =>
           cur.text.length > best.text.length ? cur : best
