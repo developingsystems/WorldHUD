@@ -140,6 +140,31 @@ async function main() {
     }
   }
 
+  // NEW: Trafilatura extraction dispatch
+  async function dispatchTrafilaturaExtraction(chunkTs: string, urls: string[]) {
+    if (!DISPATCH_URL || urls.length === 0) return;
+    try {
+      await fetch(DISPATCH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Secret': DISPATCH_SECRET,
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          workflow_id: 'trafilatura',
+          inputs: {
+            chunk_timestamp: chunkTs,
+            urls: JSON.stringify(urls),
+          },
+        }),
+      });
+      console.log(`[dispatch] Trafilatura extraction requested for ${chunkTs} (${urls.length} URLs)`);
+    } catch (err) {
+      console.warn('[dispatch] Failed to request Trafilatura extraction:', err);
+    }
+  }
+
   // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
     const cached = chunkCache.get(ts);
@@ -293,6 +318,7 @@ async function main() {
         dispatchReconstruction(ts);
         const urls = [...data.articleMap.keys()];
         dispatchFundusExtraction(ts, urls);
+        dispatchTrafilaturaExtraction(ts, urls);   // <-- added
       } catch (err) {
         if ((err as any).name === 'AbortError') return;
         console.error(`Failed to load chunk ${ts}:`, err);
@@ -321,6 +347,7 @@ async function main() {
             dispatchReconstruction(newTs);
             const urls = [...data.articleMap.keys()];
             dispatchFundusExtraction(newTs, urls);
+            dispatchTrafilaturaExtraction(newTs, urls);   // <-- added
           });
         }
       }
@@ -357,6 +384,7 @@ async function main() {
     dispatchReconstruction(initialTs);
     const urls = [...data.articleMap.keys()];
     dispatchFundusExtraction(initialTs, urls);
+    dispatchTrafilaturaExtraction(initialTs, urls);   // <-- added
   } catch (err) {
     console.error('Initial chunk load failed:', err);
   }
