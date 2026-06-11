@@ -10,8 +10,8 @@ from datetime import datetime, timezone, timedelta
 from gdeltnews import download, reconstruct
 
 def article_json_exists(timestamp: str) -> bool:
-    """Return True if articles_{timestamp}.json already exists in the release."""
-    url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/articles_{timestamp}.json"
+    """Return True if gdeltnews_{timestamp}.json already exists in the release."""
+    url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/gdeltnews_{timestamp}.json"
     try:
         req = urllib.request.Request(url, method="HEAD")
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -76,7 +76,7 @@ def main():
                         articles[url] = text
 
         os.makedirs("articles", exist_ok=True)
-        output_path = f"articles/articles_{timestamp}.json"
+        output_path = f"articles/gdeltnews_{timestamp}.json"
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(articles, f, ensure_ascii=False, indent=2)
 
