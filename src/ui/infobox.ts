@@ -137,7 +137,7 @@ function selectBestSource(sources: {
   }
 
   // If gdeltnews exists and is at least 30% longer than the best text, override
-  if (gdeltnewsText && bestText && gdeltnewsText.length >= 1.3 * bestText.length) {
+  if (gdeltnewsText && bestText && gdeltnewsText.length >= 1.5 * bestText.length) {
     return { source: 'gdeltnews', text: gdeltnewsText };
   }
 
