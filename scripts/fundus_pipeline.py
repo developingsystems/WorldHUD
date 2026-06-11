@@ -2,9 +2,8 @@
 """Fundus article extraction for WorldHUD – Crawler-based pipeline.
 
 - Builds a set of supported domains from the HTML table.
-- Filters the input URLs to those from supported domains.
-- Uses a Crawler with a URL filter to extract only the target articles.
-- Handles errors and saves partial results.
+- Filters input URLs to those from supported domains.
+- Uses a Crawler with url_filter (passed to crawl) to extract only the target articles.
 """
 
 import os
@@ -16,7 +15,6 @@ from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
-
 from fundus import PublisherCollection, Crawler
 
 
@@ -51,6 +49,7 @@ def build_supported_domains() -> set[str]:
             if domain.startswith("www."):
                 domain = domain[4:]
             domains.add(domain)
+
     print(f"Built supported domains set with {len(domains)} entries")
     return domains
 
@@ -115,25 +114,22 @@ def main():
             f.write(f"timestamp={timestamp}\n")
         return
 
-    # Define the URL filter: keep only URLs in our target set
-    def url_filter(article_url: str) -> bool:
-        return article_url in target_urls
-
-    # Initialize the crawler with the filter
-    crawler = Crawler(PublisherCollection, url_filter=url_filter)
+    # Initialize the crawler (no filter here)
+    crawler = Crawler(PublisherCollection)
 
     # Collect the results
     articles: dict[str, str] = {}
     start_time = time.time()
 
-    # We set max_articles to the number of target URLs to ensure we get them all
-    for article in crawler.crawl(max_articles=len(target_urls), timeout=30):
-        if article.html.requested_url in target_urls:
-            if article.body and article.body.text:
-                articles[article.html.requested_url] = article.body.text
-                print(f"✅ Extracted: {article.html.requested_url[:80]}...")
-            else:
-                print(f"⚠️ Extraction failed for: {article.html.requested_url}")
+    # The url_filter is passed to crawl(). It tells the crawler to keep only URLs
+    # that are in our target set. This is the correct placement.
+    for article in crawler.crawl(max_articles=len(target_urls), timeout=30,
+                                 url_filter=lambda url: url in target_urls):
+        if article.body and article.body.text:
+            articles[article.html.requested_url] = article.body.text
+            print(f"✅ Extracted: {article.html.requested_url[:80]}...")
+        else:
+            print(f"⚠️ Extraction failed for: {article.html.requested_url}")
 
     output_path = f"articles/fundus_{timestamp}.json"
     with open(output_path, "w", encoding="utf-8") as f:
