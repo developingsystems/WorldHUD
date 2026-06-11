@@ -96,25 +96,26 @@ async function main() {
   const DISPATCH_URL = import.meta.env.VITE_DISPATCH_URL || '';
   const DISPATCH_SECRET = import.meta.env.VITE_DISPATCH_SECRET || '';
 
-  async function dispatchReconstruction(chunkTs: string) {
-    if (!DISPATCH_URL) return;
-    try {
-      await fetch(DISPATCH_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Auth-Secret': DISPATCH_SECRET,
-        },
-        body: JSON.stringify({
-          ref: 'main',
-          inputs: { chunk_timestamp: chunkTs },
-        }),
-      });
-      console.log(`[dispatch] Reconstruction requested for ${chunkTs}`);
-    } catch (err) {
-      console.warn('[dispatch] Failed to request reconstruction:', err);
-    }
+async function dispatchReconstruction(chunkTs: string) {
+  if (!DISPATCH_URL) return;
+  try {
+    await fetch(DISPATCH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Auth-Secret': DISPATCH_SECRET,
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        workflow_id: 'gdeltnews',
+        inputs: { chunk_timestamp: chunkTs },
+      }),
+    });
+    console.log(`[dispatch] Reconstruction requested for ${chunkTs}`);
+  } catch (err) {
+    console.warn('[dispatch] Failed to request reconstruction:', err);
   }
+}
 
   async function dispatchFundusExtraction(chunkTs: string, urls: string[]) {
     if (!DISPATCH_URL || urls.length === 0) return;
