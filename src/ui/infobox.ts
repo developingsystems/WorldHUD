@@ -104,7 +104,48 @@ interface Snapshot {
 type ArticleSources = Map<string, { fundus?: unknown; gdeltnews?: unknown; trafilatura?: unknown }>;
 
 // =============================================================================
-// Render function with rich Trafilatura support and fallback
+// Helper: Choose best source based on priority and 30% gdeltnews advantage
+// -----------------------------------------------------------------------------
+// Priority order: Fundus > Trafilatura > gdeltnews.
+// But if gdeltnews text is at least 30% longer than the current best, switch to gdeltnews.
+// Returns the selected source key and its text (for length comparison).
+// =============================================================================
+function selectBestSource(sources: {
+  fundus?: unknown;
+  trafilatura?: unknown;
+  gdeltnews?: unknown;
+}): { source: 'fundus' | 'gdeltnews' | 'trafilatura'; text: string } | null {
+  const fundusText = sources.fundus ? getTextFromSource(sources.fundus) : '';
+  const trafilaturaText = sources.trafilatura ? getTextFromSource(sources.trafilatura) : '';
+  const gdeltnewsText = sources.gdeltnews ? getTextFromSource(sources.gdeltnews) : '';
+
+  // Priority order: Fundus, then Trafilatura, then gdeltnews
+  let bestSource: 'fundus' | 'gdeltnews' | 'trafilatura' | null = null;
+  let bestText = '';
+
+  if (fundusText) {
+    bestSource = 'fundus';
+    bestText = fundusText;
+  } else if (trafilaturaText) {
+    bestSource = 'trafilatura';
+    bestText = trafilaturaText;
+  } else if (gdeltnewsText) {
+    bestSource = 'gdeltnews';
+    bestText = gdeltnewsText;
+  } else {
+    return null;
+  }
+
+  // If gdeltnews exists and is at least 30% longer than the best text, override
+  if (gdeltnewsText && bestText && gdeltnewsText.length >= 1.3 * bestText.length) {
+    return { source: 'gdeltnews', text: gdeltnewsText };
+  }
+
+  return bestSource ? { source: bestSource, text: bestText } : null;
+}
+
+// =============================================================================
+// Render function with rich Trafilatura support
 // =============================================================================
 function renderGdelt(
   snapshot: Snapshot,
@@ -122,21 +163,13 @@ function renderGdelt(
   let rawTitle = '';
   let articleText = '';
 
-  // ---- Title & Text based on current source ----
+  // --- Title & Text based on current source ---
   if (currentSource === 'trafilatura' && sources.trafilatura && typeof sources.trafilatura === 'object') {
     // Rich Trafilatura JSON
     const traf = sources.trafilatura as any;
     const titleFromTraf = traf.title || (headlines && headlines[0]) || 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(titleFromTraf)}</a>`;
     articleText = traf.text || '';
-    // Optional: if text is too short, fall back to gdeltnews (if available)
-    if (articleText.length < 200 && sources.gdeltnews) {
-      const gdeltText = getTextFromSource(sources.gdeltnews);
-      if (gdeltText.length > articleText.length) {
-        articleText = gdeltText;
-        // Optionally change the displayed source name? Not necessary; user can see dropdown.
-      }
-    }
   } else if (currentSource === 'trafilatura' && typeof sources.trafilatura === 'string') {
     // Plain string fallback (if pipeline saved only text)
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
@@ -157,7 +190,7 @@ function renderGdelt(
     articleText = '';
   }
 
-  // ---- Events list (unchanged) ----
+  // --- Events list (unchanged) ---
   const siblings = snapshot.articleMap.get(sourceUrl) || articleMap.get(sourceUrl) || [];
   let eventsHtml = '';
   siblings.forEach((evt) => {
@@ -198,7 +231,7 @@ function renderGdelt(
 }
 
 // =============================================================================
-// InfoBox class (unchanged except for using getTextFromSource in best‑source selection)
+// InfoBox class
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -309,16 +342,11 @@ export class InfoBox {
     };
     this.currentSnapshot = snapshot;
 
-    // Determine best available source by text length (using helper)
+    // Select best source using priority + 30% gdeltnews rule
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
-    const candidates: { source: 'fundus' | 'gdeltnews' | 'trafilatura'; text: string }[] = [];
-    if (sources.fundus) candidates.push({ source: 'fundus', text: getTextFromSource(sources.fundus) });
-    if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: getTextFromSource(sources.gdeltnews) });
-    if (sources.trafilatura) candidates.push({ source: 'trafilatura', text: getTextFromSource(sources.trafilatura) });
-    if (candidates.length > 0) {
-      this.currentSource = candidates.reduce((best, cur) =>
-        cur.text.length > best.text.length ? cur : best
-      ).source;
+    const best = selectBestSource(sources);
+    if (best) {
+      this.currentSource = best.source;
     }
 
     const { title, body } = renderGdelt(snapshot, this.articleMap, this.articleSources, this.currentSource);
@@ -396,14 +424,9 @@ export class InfoBox {
 
     if (this.currentSnapshot) {
       const sources = this.articleSources.get(this.currentSnapshot.sourceUrl) || {};
-      const candidates: { source: 'fundus' | 'gdeltnews' | 'trafilatura'; text: string }[] = [];
-      if (sources.fundus) candidates.push({ source: 'fundus', text: getTextFromSource(sources.fundus) });
-      if (sources.gdeltnews) candidates.push({ source: 'gdeltnews', text: getTextFromSource(sources.gdeltnews) });
-      if (sources.trafilatura) candidates.push({ source: 'trafilatura', text: getTextFromSource(sources.trafilatura) });
-      if (candidates.length > 0) {
-        this.currentSource = candidates.reduce((best, cur) =>
-          cur.text.length > best.text.length ? cur : best
-        ).source;
+      const best = selectBestSource(sources);
+      if (best) {
+        this.currentSource = best.source;
       }
       const { title, body } = renderGdelt(
         this.currentSnapshot,
