@@ -1,6 +1,6 @@
 import { Viewer, Entity } from 'cesium';
 import DOMPurify, { type Config } from 'dompurify';
-import { marked } from 'marked';  // <-- new import
+import { marked } from 'marked';
 import { getVerb, getRootVerbPast } from '../data/cameoverbs.js';
 
 // =============================================================================
@@ -105,7 +105,7 @@ interface Snapshot {
 type ArticleSources = Map<string, { fundus?: unknown; gdeltnews?: unknown; trafilatura?: unknown }>;
 
 // =============================================================================
-// Helper: Choose best source based on priority and 30% gdeltnews advantage
+// Helper: Choose best source based on priority and 50% gdeltnews advantage
 // -----------------------------------------------------------------------------
 // Priority order: Fundus > Trafilatura > gdeltnews.
 // But if gdeltnews text is at least 50% longer than the current best, switch to gdeltnews.
@@ -145,14 +145,12 @@ function selectBestSource(sources: {
 }
 
 // =============================================================================
-// Helper: Render Markdown to HTML (synchronous, sanitized)
+// Helper: Render Markdown to HTML asynchronously (non‑blocking)
 // =============================================================================
-function renderMarkdown(markdown: string): string {
+async function renderMarkdown(markdown: string): Promise<string> {
   if (!markdown) return '';
   try {
-    // Convert Markdown to HTML synchronously
-    const rawHtml = marked.parse(markdown, { async: false }) as string;
-    // Sanitize the HTML (XSS protection)
+    const rawHtml = await marked.parse(markdown);
     return DOMPurify.sanitize(rawHtml, GDELT_DOMPURIFY_CONFIG);
   } catch (error) {
     console.error('Markdown rendering failed:', error);
@@ -174,14 +172,14 @@ function escapeHtml(text: string): string {
 }
 
 // =============================================================================
-// Render function with rich Trafilatura support
+// Render function with rich Trafilatura support (async)
 // =============================================================================
-function renderGdelt(
+async function renderGdelt(
   snapshot: Snapshot,
   articleMap: Map<string, Record<string, unknown>[]>,
   articleSources: ArticleSources,
   currentSource: 'fundus' | 'gdeltnews' | 'trafilatura',
-): { title: string; body: string } {
+): Promise<{ title: string; body: string }> {
   const { sourceUrl, headlines, globalEventId, entityId } = snapshot;
   const esc = (s: unknown): string => {
     const str = s == null ? '' : String(s);
@@ -199,12 +197,12 @@ function renderGdelt(
     const titleFromTraf = traf.title || (headlines && headlines[0]) || 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(titleFromTraf)}</a>`;
     const markdownText = traf.text || '';
-    articleHtml = renderMarkdown(markdownText);
+    articleHtml = await renderMarkdown(markdownText);
   } else if (currentSource === 'trafilatura' && typeof sources.trafilatura === 'string') {
     // Plain string fallback (if pipeline saved only text)
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
-    articleHtml = renderMarkdown(sources.trafilatura);
+    articleHtml = await renderMarkdown(sources.trafilatura);
   } else if (currentSource === 'gdeltnews' && sources.gdeltnews) {
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
@@ -263,7 +261,7 @@ function renderGdelt(
 }
 
 // =============================================================================
-// InfoBox class (unchanged except for using renderMarkdown)
+// InfoBox class (async render updates)
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -355,7 +353,7 @@ export class InfoBox {
     );
   }
 
-  private onSelectionChanged(entity: Entity | undefined): void {
+  private async onSelectionChanged(entity: Entity | undefined): Promise<void> {
     if (!entity || !entity.properties) return;
 
     const p = entity.properties.getValue() || {};
@@ -381,15 +379,15 @@ export class InfoBox {
       this.currentSource = best.source;
     }
 
-    const { title, body } = renderGdelt(snapshot, this.articleMap, this.articleSources, this.currentSource);
+    const { title, body } = await renderGdelt(snapshot, this.articleMap, this.articleSources, this.currentSource);
     this.currentTitle = title;
     this.currentBody = body;
     this.show();
   }
 
-  private refreshArticle(): void {
+  private async refreshArticle(): Promise<void> {
     if (!this.currentSnapshot) return;
-    const { title, body } = renderGdelt(
+    const { title, body } = await renderGdelt(
       this.currentSnapshot,
       this.articleMap,
       this.articleSources,
@@ -436,10 +434,10 @@ export class InfoBox {
     this.container.style.display = 'block';
   }
 
-  updateData(
+  async updateData(
     articleMap: Map<string, Record<string, unknown>[]>,
     articleSources: ArticleSources,
-  ) {
+  ): Promise<void> {
     this.articleMap = articleMap;
 
     if (this.currentSnapshot) {
@@ -460,7 +458,7 @@ export class InfoBox {
       if (best) {
         this.currentSource = best.source;
       }
-      const { title, body } = renderGdelt(
+      const { title, body } = await renderGdelt(
         this.currentSnapshot,
         articleMap,
         this.articleSources,
