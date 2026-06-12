@@ -175,17 +175,11 @@ function escapeHtml(text: string): string {
 // Helper: Get tone color with non‑linear mapping (enhances -10..10 range)
 // =============================================================================
 function getToneColor(tone: number): string {
-  // Clamp to official -100..100 range
   let x = Math.min(100, Math.max(-100, tone));
-  // Non‑linear mapping: compress outer ranges, expand middle
-  // Uses cube root style (power 1/3) for smoother transition
   const sign = x === 0 ? 0 : Math.sign(x);
   const absX = Math.abs(x);
-  // Map -100..0..100 to -1..0..1, apply power (1/3) to stretch middle, then map back
   const t = sign * Math.pow(absX / 100, 1 / 3);
-  // Normalize to 0..1 for color mixing
   const normalized = (t + 1) / 2;
-  // Mix red → gray → green in oklab color space
   return `color-mix(in oklab, color-mix(in oklab, red ${(1 - normalized) * 100}%, gray 100%), green ${normalized * 100}%)`;
 }
 
@@ -216,7 +210,6 @@ async function renderGdelt(
       descriptionHtml = `<div class="infobox-description">${esc(traf.description)}</div>`;
     }
     const titleFromTraf = traf.title || (headlines && headlines[0]) || 'GDELT Event';
-    // Decode HTML entities in title
     const decode = (s: string) => new DOMParser().parseFromString(s, 'text/html').documentElement.textContent || s;
     const decodedTitle = decode(titleFromTraf);
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(decodedTitle)}</a>`;
@@ -277,6 +270,7 @@ async function renderGdelt(
   }
   const articleTone = toneCount > 0 ? totalTone / toneCount : 0;
   const toneColor = getToneColor(articleTone);
+  const toneFormatted = articleTone.toFixed(2);
 
   const title = sanitize(rawTitle);
   const rawBody = `
@@ -290,8 +284,7 @@ async function renderGdelt(
       </div>
       <hr>
       <div class="infobox-footer">
-        <span class="article-tone" style="color: ${toneColor};">Article Tone: ${articleTone.toFixed(2)}</span>
-        <span class="infobox-uuid">UUID: ${esc(entityId)}</span>
+        <span class="tone-label">Article tone: </span><span class="tone-value" style="color: ${toneColor};">${toneFormatted}</span>
       </div>
     </div>
   `;
@@ -363,14 +356,17 @@ export class InfoBox {
         }
         .infobox-footer {
           display: flex;
-          justify-content: space-between;
-          font-size: 0.7em;
+          justify-content: flex-start;
+          font-size: 12px;
           color: gray;
           margin-top: 8px;
         }
-        .article-tone {
+        .tone-label {
+          font-weight: normal;
+          margin-right: 4px;
+        }
+        .tone-value {
           font-weight: bold;
-          transition: color 0.2s ease;
         }
       `;
       document.head.appendChild(styleEl);
