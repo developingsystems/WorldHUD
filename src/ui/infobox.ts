@@ -221,7 +221,7 @@ async function renderGdelt(
     articleHtml = '<p style="color: gray;">Article text not yet available for this source.</p>';
   }
 
-  // --- Events list (unchanged) ---
+  // --- Events list (without tone) ---
   const siblings = snapshot.articleMap.get(sourceUrl) || articleMap.get(sourceUrl) || [];
   let eventsHtml = '';
   siblings.forEach((evt) => {
@@ -231,7 +231,6 @@ async function renderGdelt(
     const code = (evt.eventCode as string) || '';
     const gold = (evt.goldstein as number) || 0;
     const ment = (evt.numMentions as number) || 0;
-    const ton  = (evt.tone as number) || 0;
     const isClicked = gid === globalEventId;
 
     const highlightStyle = isClicked
@@ -241,9 +240,12 @@ async function renderGdelt(
     eventsHtml += `
       <div style="${highlightStyle} margin-bottom: 7px; font-size: 12px;" title="Global Event ID: ${esc(gid)}">
         <strong>${esc(a1)} <span title="${esc(getVerb(code))}">${esc(getRootVerbPast(code))}</span> ${esc(a2)}</strong>
-        | goldstein: ${gold.toFixed(1)} | tone: ${ton.toFixed(2)} | mentions: ${ment}
+        | goldstein: ${gold.toFixed(1)} | mentions: ${ment}
       </div>`;
   });
+
+  // Article‑level tone (from the first event)
+  const articleTone = siblings[0]?.tone || 0;
 
   const title = sanitize(rawTitle);
   const rawBody = `
@@ -251,12 +253,15 @@ async function renderGdelt(
       ${descriptionHtml}
       ${eventsHtml}
       <hr>
-      <div = id="infobox-dropdown-placeholder"></div>
+      <div id="infobox-dropdown-placeholder"></div>
       <div class="infobox-article">
         ${articleHtml}
       </div>
       <hr>
-      <p class="infobox-uuid">Entity UUID: ${esc(entityId)}</p>
+      <div class="infobox-footer">
+        <span class="infobox-tone">Article Tone: ${articleTone.toFixed(2)}</span>
+        <span class="infobox-uuid">UUID: ${esc(entityId)}</span>
+      </div>
     </div>
   `;
   const body = sanitize(rawBody);
