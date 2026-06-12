@@ -296,6 +296,13 @@ export class InfoBox {
           color: white;
           text-decoration: none;
         }
+        .infobox-description {
+          font-style: italic;
+          color: #ccc;
+          margin-bottom: 12px;
+          border-left: 3px solid #66aaff;
+          padding-left: 8px;
+        }
         .infobox-body {
           font-family: sans-serif;
         }
