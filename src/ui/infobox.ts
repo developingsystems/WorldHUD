@@ -1,6 +1,5 @@
 import { Viewer, Entity } from 'cesium';
 import DOMPurify, { type Config } from 'dompurify';
-import { marked } from 'marked';
 import { getVerb, getRootVerbPast } from '../data/cameoverbs.js';
 
 // =============================================================================
@@ -144,21 +143,6 @@ function selectBestSource(sources: {
 }
 
 // =============================================================================
-// Helper: Render Markdown to HTML asynchronously (non‑blocking)
-// =============================================================================
-async function renderMarkdown(markdown: string): Promise<string> {
-  if (!markdown) return '';
-  try {
-    const rawHtml = await marked.parse(markdown);
-    return DOMPurify.sanitize(rawHtml, GDELT_DOMPURIFY_CONFIG);
-  } catch (error) {
-    console.error('Markdown rendering failed:', error);
-    // Fallback: return escaped text
-    return escapeHtml(markdown);
-  }
-}
-
-// =============================================================================
 // Helper: Escape HTML special characters (for plain text fallback)
 // =============================================================================
 function escapeHtml(text: string): string {
@@ -177,7 +161,7 @@ function getToneColor(tone: number): string {
   let x = Math.min(100, Math.max(-100, tone));
   const sign = x === 0 ? 0 : Math.sign(x);
   const absX = Math.abs(x);
-  const sat = Math.pow(absX / 100, 0.15); // exponent = 0.15
+  const sat = Math.pow(absX / 100, 0.15);
   const normalized = sign > 0 ? 0.5 + sat * 0.5 : 0.5 - sat * 0.5;
   const stops = [
     { pos: 0.0, color: '#FF0000' },
@@ -201,13 +185,62 @@ function formatTone(tone: number): string {
 }
 
 // =============================================================================
-// Render function with rich Trafilatura support (async)
+// Web Worker for Markdown parsing
+// -----------------------------------------------------------------------------
+let markdownWorker: Worker | null = null;
+
+async function renderMarkdown(markdown: string, signal?: AbortSignal): Promise<string> {
+  if (!markdown) return '';
+  // Create the worker lazily (once)
+  if (!markdownWorker) {
+    // Vite syntax for worker modules
+    markdownWorker = new Worker(new URL('./markdownWorker.ts', import.meta.url));
+  }
+  return new Promise((resolve, reject) => {
+    const onMessage = (event: MessageEvent) => {
+      const { success, html, error } = event.data;
+      if (success) {
+        resolve(DOMPurify.sanitize(html, GDELT_DOMPURIFY_CONFIG));
+      } else {
+        reject(new Error(error));
+      }
+      cleanup();
+    };
+    const onError = (err: ErrorEvent) => {
+      reject(err);
+      cleanup();
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const cleanup = () => {
+      markdownWorker?.removeEventListener('message', onMessage);
+      markdownWorker?.removeEventListener('error', onError);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+    markdownWorker?.addEventListener('message', onMessage);
+    markdownWorker?.addEventListener('error', onError);
+    if (signal) {
+      if (signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    markdownWorker?.postMessage(markdown);
+  });
+}
+
+// =============================================================================
+// Render function with rich Trafilatura support (async, accepts signal)
 // =============================================================================
 async function renderGdelt(
   snapshot: Snapshot,
   articleMap: Map<string, Record<string, unknown>[]>,
   articleSources: ArticleSources,
   currentSource: 'fundus' | 'gdeltnews' | 'trafilatura',
+  signal?: AbortSignal,
 ): Promise<{ title: string; body: string; footer: string }> {
   const { sourceUrl, headlines, globalEventId } = snapshot;
   const esc = (s: unknown): string => {
@@ -231,11 +264,11 @@ async function renderGdelt(
     const decodedTitle = decode(titleFromTraf);
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(decodedTitle)}</a>`;
     const markdownText = traf.text || '';
-    articleHtml = await renderMarkdown(markdownText);
+    articleHtml = await renderMarkdown(markdownText, signal);
   } else if (currentSource === 'trafilatura' && typeof sources.trafilatura === 'string') {
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
-    articleHtml = await renderMarkdown(sources.trafilatura);
+    articleHtml = await renderMarkdown(sources.trafilatura, signal);
   } else if (currentSource === 'gdeltnews' && sources.gdeltnews) {
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
@@ -275,7 +308,7 @@ async function renderGdelt(
       </div>`;
   });
 
-  // --- Article‑level tone (average over all events sharing the same sourceUrl) ---
+  // --- Article‑level tone ---
   let totalTone = 0;
   let toneCount = 0;
   for (const evt of siblings) {
@@ -308,7 +341,7 @@ async function renderGdelt(
 }
 
 // =============================================================================
-// InfoBox class (async render updates)
+// InfoBox class (async render updates with cancellation)
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -321,6 +354,7 @@ export class InfoBox {
   private currentScrollable: string = '';
   private currentFooter: string = '';
   private currentSnapshot: Snapshot | null = null;
+  private currentController: AbortController | null = null;
 
   constructor(
     viewer: Viewer,
@@ -391,6 +425,12 @@ export class InfoBox {
         .tone-value {
           font-weight: bold;
         }
+        .infobox-loading {
+          text-align: center;
+          padding: 20px;
+          color: #aaa;
+          font-style: italic;
+        }
       `;
       document.head.appendChild(styleEl);
     }
@@ -441,6 +481,17 @@ export class InfoBox {
   private async onSelectionChanged(entity: Entity | undefined): Promise<void> {
     if (!entity || !entity.properties) return;
 
+    // Cancel any ongoing render
+    if (this.currentController) {
+      this.currentController.abort();
+    }
+    this.currentController = new AbortController();
+    const signal = this.currentController.signal;
+
+    // Show loading indicator immediately
+    this.container.innerHTML = '<div class="infobox-loading">Loading article...</div>';
+    this.container.style.display = 'flex';
+
     const p = entity.properties.getValue() || {};
     const snapshot: Snapshot = {
       sourceUrl: (p.sourceUrl as string) || '',
@@ -456,32 +507,63 @@ export class InfoBox {
     };
     this.currentSnapshot = snapshot;
 
-    // Select best source using priority + 50% gdeltnews rule
+    // Select best source (synchronous, fast)
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
     const best = selectBestSource(sources);
     if (best) {
       this.currentSource = best.source;
     }
 
-    const { title, body, footer } = await renderGdelt(snapshot, this.articleMap, this.articleSources, this.currentSource);
-    this.currentTitle = title;
-    this.currentScrollable = body;
-    this.currentFooter = footer;
-    this.show();
+    try {
+      const { title, body, footer } = await renderGdelt(
+        snapshot,
+        this.articleMap,
+        this.articleSources,
+        this.currentSource,
+        signal,
+      );
+      if (signal.aborted) return;
+      this.currentTitle = title;
+      this.currentScrollable = body;
+      this.currentFooter = footer;
+      this.show();
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      console.error('Render error:', err);
+      this.container.innerHTML = '<div class="infobox-loading">Failed to load article.</div>';
+    } finally {
+      if (this.currentController === this.currentController) this.currentController = null;
+    }
   }
 
   private async refreshArticle(): Promise<void> {
     if (!this.currentSnapshot) return;
-    const { title, body, footer } = await renderGdelt(
-      this.currentSnapshot,
-      this.articleMap,
-      this.articleSources,
-      this.currentSource,
-    );
-    this.currentTitle = title;
-    this.currentScrollable = body;
-    this.currentFooter = footer;
-    this.show();
+    // Cancel any ongoing render
+    if (this.currentController) {
+      this.currentController.abort();
+    }
+    this.currentController = new AbortController();
+    const signal = this.currentController.signal;
+
+    try {
+      const { title, body, footer } = await renderGdelt(
+        this.currentSnapshot,
+        this.articleMap,
+        this.articleSources,
+        this.currentSource,
+        signal,
+      );
+      if (signal.aborted) return;
+      this.currentTitle = title;
+      this.currentScrollable = body;
+      this.currentFooter = footer;
+      this.show();
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      console.error('Refresh error:', err);
+    } finally {
+      if (this.currentController === this.currentController) this.currentController = null;
+    }
   }
 
   private show(): void {
@@ -539,6 +621,10 @@ export class InfoBox {
   }
 
   private hide(): void {
+    if (this.currentController) {
+      this.currentController.abort();
+      this.currentController = null;
+    }
     this.container.style.display = 'none';
   }
 
@@ -561,25 +647,44 @@ export class InfoBox {
     }
 
     if (this.currentSnapshot) {
-      const sources = this.articleSources.get(this.currentSnapshot.sourceUrl) || {};
-      const best = selectBestSource(sources);
-      if (best) {
-        this.currentSource = best.source;
+      // Cancel any ongoing render
+      if (this.currentController) {
+        this.currentController.abort();
       }
-      const { title, body, footer } = await renderGdelt(
-        this.currentSnapshot,
-        articleMap,
-        this.articleSources,
-        this.currentSource,
-      );
-      this.currentTitle = title;
-      this.currentScrollable = body;
-      this.currentFooter = footer;
-      this.show();
+      this.currentController = new AbortController();
+      const signal = this.currentController.signal;
+      try {
+        const sources = this.articleSources.get(this.currentSnapshot.sourceUrl) || {};
+        const best = selectBestSource(sources);
+        if (best) {
+          this.currentSource = best.source;
+        }
+        const { title, body, footer } = await renderGdelt(
+          this.currentSnapshot,
+          articleMap,
+          this.articleSources,
+          this.currentSource,
+          signal,
+        );
+        if (signal.aborted) return;
+        this.currentTitle = title;
+        this.currentScrollable = body;
+        this.currentFooter = footer;
+        this.show();
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        console.error('Update error:', err);
+      } finally {
+        if (this.currentController === this.currentController) this.currentController = null;
+      }
     }
   }
 
   destroy(): void {
+    if (this.currentController) {
+      this.currentController.abort();
+      this.currentController = null;
+    }
     this.removeListener();
     this.container.remove();
   }
