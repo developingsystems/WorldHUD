@@ -259,7 +259,7 @@ async function renderGdelt(
       </div>
       <hr>
       <div class="infobox-footer">
-        <span class="infobox-tone">Article Tone: ${articleTone.toFixed(2)}</span>
+        <span class="article-tone">Article Tone: ${articleTone.toFixed(2)}</span>
         <span class="infobox-uuid">UUID: ${esc(entityId)}</span>
       </div>
     </div>
