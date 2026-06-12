@@ -1,4 +1,4 @@
-import { Viewer, Entity } from 'cesium';
+import { Viewer, Entity } from 'cesium';import { Viewer, Entity } from 'cesium';
 import DOMPurify, { type Config } from 'dompurify';
 import { getVerb, getRootVerbPast } from '../data/cameoverbs.js';
 
@@ -44,14 +44,15 @@ function hasNativeSanitizer(): boolean {
 const GDELT_ALLOWED_TAGS = [
   'a', 'p', 'strong', 'em', 'br', 'hr',
   'ul', 'ol', 'li', 'div', 'span',
+  'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'
 ] as const;
 
 /** DOMPurify configuration – compatible with v3.x */
 const GDELT_DOMPURIFY_CONFIG: Config = {
   ALLOWED_TAGS: [...GDELT_ALLOWED_TAGS],
-  ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title'],
-  ALLOWED_URI_REGEXP: /^https?:\/\//,
-  ALLOW_UNKNOWN_PROTOCOLS: true,
+  ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title', 'src', 'alt'],
+  ALLOWED_URI_REGEXP: /^https?:\/\//i,
+  ALLOW_UNKNOWN_PROTOCOLS: false,
   ADD_ATTR: ['target'],
 };
 
@@ -143,18 +144,6 @@ function selectBestSource(sources: {
 }
 
 // =============================================================================
-// Helper: Escape HTML special characters (for plain text fallback)
-// =============================================================================
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// =============================================================================
 // Helper: Get tone color with non‑linear mapping and three‑stop gradient
 // =============================================================================
 function getToneColor(tone: number): string {
@@ -191,9 +180,7 @@ let markdownWorker: Worker | null = null;
 
 async function renderMarkdown(markdown: string, signal?: AbortSignal): Promise<string> {
   if (!markdown) return '';
-  // Create the worker lazily (once)
   if (!markdownWorker) {
-    // Vite syntax for worker modules
     markdownWorker = new Worker(new URL('../workers/markdown-worker.ts', import.meta.url));
   }
   return new Promise((resolve, reject) => {
