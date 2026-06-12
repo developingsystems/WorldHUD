@@ -179,7 +179,7 @@ function getToneColor(tone: number): string {
   const sign = x === 0 ? 0 : Math.sign(x);
   const absX = Math.abs(x);
   // Non‑linear mapping: sat = (|tone|/100)^exponent
-  const sat = Math.pow(absX / 100, 0.2440);
+  const sat = Math.pow(absX / 100, 0.15);
   // Normalized position in [0,1] where 0 = -100, 0.5 = 0, 1 = +100
   const normalized = sign > 0 ? 0.5 + sat * 0.5 : 0.5 - sat * 0.5;
   // Define stops
