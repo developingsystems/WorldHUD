@@ -483,10 +483,6 @@ export class InfoBox {
     this.currentController = new AbortController();
     const signal = this.currentController.signal;
 
-    // Show loading indicator immediately
-    this.container.innerHTML = '<div class="infobox-loading">Loading article...</div>';
-    this.container.style.display = 'flex';
-
     const p = entity.properties?.getValue() || {};
     const snapshot: Snapshot = {
       sourceUrl: (p.sourceUrl as string) || '',
