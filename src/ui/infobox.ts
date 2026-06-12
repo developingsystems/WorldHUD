@@ -188,22 +188,20 @@ async function renderGdelt(
 
   const sources = articleSources.get(sourceUrl) || {};
   let rawTitle = '';
+  let descriptionHtml = '';   // declare outside the if block
   let articleHtml = '';
 
   // --- Title & Text based on current source ---
   if (currentSource === 'trafilatura' && sources.trafilatura && typeof sources.trafilatura === 'object') {
-    // Rich Trafilatura JSON
-    let descriptionHtml = '';
+    const traf = sources.trafilatura as any;   // move this before using traf
     if (traf.description) {
       descriptionHtml = `<div class="infobox-description">${esc(traf.description)}</div>`;
     }
-    const traf = sources.trafilatura as any;
     const titleFromTraf = traf.title || (headlines && headlines[0]) || 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(titleFromTraf)}</a>`;
     const markdownText = traf.text || '';
     articleHtml = await renderMarkdown(markdownText);
   } else if (currentSource === 'trafilatura' && typeof sources.trafilatura === 'string') {
-    // Plain string fallback (if pipeline saved only text)
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
     articleHtml = await renderMarkdown(sources.trafilatura);
@@ -218,7 +216,6 @@ async function renderGdelt(
     const plainText = getTextFromSource(sources.fundus);
     articleHtml = `<p>${esc(plainText)}</p>`;
   } else {
-    // Fallback: just use first headline and empty text
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
     articleHtml = '<p style="color: gray;">Article text not yet available for this source.</p>';
