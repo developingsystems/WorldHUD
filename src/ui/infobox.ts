@@ -177,8 +177,8 @@ function getToneColor(tone: number): string {
   let x = Math.min(100, Math.max(-100, tone));
   const sign = x === 0 ? 0 : Math.sign(x);
   const absX = Math.abs(x);
-  // Use exponent 0.25 (fourth root) for stronger colour differentiation in the ±10 range
-  const t = sign * Math.pow(absX / 100, 0.01);
+  // Use exponent 0.1 for stronger colour differentiation in the ±10 range
+  const t = sign * Math.pow(absX / 100, 0.10);
   const normalized = (t + 1) / 2;
   return `color-mix(in oklab, color-mix(in oklab, red ${(1 - normalized) * 100}%, gray 100%), green ${normalized * 100}%)`;
 }
