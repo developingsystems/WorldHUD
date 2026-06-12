@@ -174,48 +174,58 @@ function formatTone(tone: number): string {
 }
 
 // =============================================================================
-// Web Worker for Markdown parsing
-// -----------------------------------------------------------------------------
-let markdownWorker: Worker | null = null;
-
+// Web Worker for Markdown parsing (new worker per request)
+// =============================================================================
 async function renderMarkdown(markdown: string, signal?: AbortSignal): Promise<string> {
   if (!markdown) return '';
-  if (!markdownWorker) {
-    markdownWorker = new Worker(new URL('../workers/markdown-worker.ts', import.meta.url));
+
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
   }
+
+  const worker = new Worker(new URL('../workers/markdown-worker.ts', import.meta.url));
+  let terminated = false;
+
+  const abortHandler = () => {
+    if (!terminated) {
+      worker.terminate();
+      terminated = true;
+    }
+  };
+
+  if (signal) {
+    signal.addEventListener('abort', abortHandler, { once: true });
+  }
+
   return new Promise((resolve, reject) => {
     const onMessage = (event: MessageEvent) => {
-      const { success, html, error } = event.data;
-      if (success) {
-        resolve(DOMPurify.sanitize(html, GDELT_DOMPURIFY_CONFIG));
-      } else {
-        reject(new Error(error));
+      if (!terminated) {
+        const { success, html, error } = event.data;
+        if (success) {
+          resolve(DOMPurify.sanitize(html, GDELT_DOMPURIFY_CONFIG));
+        } else {
+          reject(new Error(error));
+        }
       }
       cleanup();
     };
+
     const onError = (err: ErrorEvent) => {
-      reject(err);
+      if (!terminated) reject(err);
       cleanup();
     };
-    const onAbort = () => {
-      cleanup();
-      reject(new DOMException('Aborted', 'AbortError'));
-    };
+
     const cleanup = () => {
-      markdownWorker?.removeEventListener('message', onMessage);
-      markdownWorker?.removeEventListener('error', onError);
-      if (signal) signal.removeEventListener('abort', onAbort);
-    };
-    markdownWorker?.addEventListener('message', onMessage);
-    markdownWorker?.addEventListener('error', onError);
-    if (signal) {
-      if (signal.aborted) {
-        reject(new DOMException('Aborted', 'AbortError'));
-        return;
+      if (signal) signal.removeEventListener('abort', abortHandler);
+      if (!terminated) {
+        worker.terminate();
+        terminated = true;
       }
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-    markdownWorker?.postMessage(markdown);
+    };
+
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+    worker.postMessage(markdown);
   });
 }
 
@@ -328,7 +338,7 @@ async function renderGdelt(
 }
 
 // =============================================================================
-// InfoBox class (async render updates with cancellation)
+// InfoBox class (async render updates with cancellation, no custom click listener)
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -453,14 +463,19 @@ export class InfoBox {
       this.refreshArticle();
     });
 
+    // Listen to Cesium's selection changes – no custom click listener
     this.removeListener = viewer.selectedEntityChanged.addEventListener(
-      (entity: Entity | undefined) => this.onSelectionChanged(entity),
+      (entity: Entity | undefined) => {
+        if (entity) {
+          this.onSelectionChanged(entity);
+        } else {
+          this.hide();
+        }
+      }
     );
   }
 
-  private async onSelectionChanged(entity: Entity | undefined): Promise<void> {
-    if (!entity || !entity.properties) return;
-
+  private async onSelectionChanged(entity: Entity): Promise<void> {
     // Cancel any ongoing render
     if (this.currentController) {
       this.currentController.abort();
@@ -472,7 +487,7 @@ export class InfoBox {
     this.container.innerHTML = '<div class="infobox-loading">Loading article...</div>';
     this.container.style.display = 'flex';
 
-    const p = entity.properties.getValue() || {};
+    const p = entity.properties?.getValue() || {};
     const snapshot: Snapshot = {
       sourceUrl: (p.sourceUrl as string) || '',
       headlines: (p.headlines as string[]) || [],
@@ -518,7 +533,6 @@ export class InfoBox {
 
   private async refreshArticle(): Promise<void> {
     if (!this.currentSnapshot) return;
-    // Cancel any ongoing render
     if (this.currentController) {
       this.currentController.abort();
     }
@@ -627,7 +641,6 @@ export class InfoBox {
     }
 
     if (this.currentSnapshot) {
-      // Cancel any ongoing render
       if (this.currentController) {
         this.currentController.abort();
       }
