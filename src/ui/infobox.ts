@@ -429,10 +429,8 @@ export class InfoBox {
     bodyEl.innerHTML = this.currentBody;
 
     this.container.appendChild(titleEl);
-    
-    this.container.appendChild(this.dropdown);
-    
     this.container.appendChild(bodyEl);
+    this.container.appendChild(this.dropdown);
     this.container.style.display = 'block';
   }
 
