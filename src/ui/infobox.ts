@@ -194,7 +194,7 @@ async function renderMarkdown(markdown: string, signal?: AbortSignal): Promise<s
   // Create the worker lazily (once)
   if (!markdownWorker) {
     // Vite syntax for worker modules
-    markdownWorker = new Worker(new URL('./markdownWorker.ts', import.meta.url));
+    markdownWorker = new Worker(new URL('../workers/markdown-worker.ts', import.meta.url));
   }
   return new Promise((resolve, reject) => {
     const onMessage = (event: MessageEvent) => {
