@@ -193,6 +193,10 @@ async function renderGdelt(
   // --- Title & Text based on current source ---
   if (currentSource === 'trafilatura' && sources.trafilatura && typeof sources.trafilatura === 'object') {
     // Rich Trafilatura JSON
+    let descriptionHtml = '';
+    if (traf.description) {
+      descriptionHtml = `<div class="infobox-description">${esc(traf.description)}</div>`;
+    }
     const traf = sources.trafilatura as any;
     const titleFromTraf = traf.title || (headlines && headlines[0]) || 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(titleFromTraf)}</a>`;
