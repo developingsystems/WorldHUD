@@ -310,7 +310,7 @@ export class InfoBox {
           margin-bottom: 0;
         }
         .infobox-article {
-          max-height: 40vh;
+          max-height: 50vh;
           overflow-y: auto;
           margin-top: 8px;
           white-space: normal;
