@@ -251,6 +251,7 @@ async function renderGdelt(
   const title = sanitize(rawTitle);
   const rawBody = `
     <div class="infobox-body">
+      descriptionHtml
       ${eventsHtml}
       <hr>
       <div class="infobox-article">
