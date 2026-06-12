@@ -1,4 +1,4 @@
-import { Viewer, Entity } from 'cesium';import { Viewer, Entity } from 'cesium';
+import { Viewer, Entity } from 'cesium';
 import DOMPurify, { type Config } from 'dompurify';
 import { getVerb, getRootVerbPast } from '../data/cameoverbs.js';
 
