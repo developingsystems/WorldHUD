@@ -251,6 +251,7 @@ async function renderGdelt(
       ${descriptionHtml}
       ${eventsHtml}
       <hr>
+      <div = id="infobox-dropdown-placeholder"></div>
       <div class="infobox-article">
         ${articleHtml}
       </div>
@@ -407,41 +408,54 @@ export class InfoBox {
     this.show();
   }
 
-  private show(): void {
-    this.container.innerHTML = '';
+private show(): void {
+  this.container.innerHTML = '';
 
-    const url = this.currentSnapshot?.sourceUrl || '';
-    const sources = this.articleSources.get(url) || {};
-    this.dropdown.innerHTML = '';
-    const options: { value: 'fundus' | 'gdeltnews' | 'trafilatura'; label: string }[] = [
-      { value: 'fundus', label: 'Fundus' },
-      { value: 'gdeltnews', label: 'gdeltnews' },
-      { value: 'trafilatura', label: 'Trafilatura' },
-    ];
-    options.forEach(opt => {
-      const optionEl = document.createElement('option');
-      optionEl.value = opt.value;
-      optionEl.textContent = opt.label;
-      if (!sources[opt.value]) optionEl.disabled = true;
-      if (opt.value === this.currentSource) optionEl.selected = true;
-      this.dropdown.appendChild(optionEl);
-    });
-    this.dropdown.style.display = 'block';
+  // Build dropdown options (but don't append yet)
+  const url = this.currentSnapshot?.sourceUrl || '';
+  const sources = this.articleSources.get(url) || {};
+  this.dropdown.innerHTML = '';
+  const options: { value: 'fundus' | 'gdeltnews' | 'trafilatura'; label: string }[] = [
+    { value: 'fundus', label: 'Fundus' },
+    { value: 'gdeltnews', label: 'gdeltnews' },
+    { value: 'trafilatura', label: 'Trafilatura' },
+  ];
+  options.forEach(opt => {
+    const optionEl = document.createElement('option');
+    optionEl.value = opt.value;
+    optionEl.textContent = opt.label;
+    if (!sources[opt.value]) optionEl.disabled = true;
+    if (opt.value === this.currentSource) optionEl.selected = true;
+    this.dropdown.appendChild(optionEl);
+  });
+  this.dropdown.style.display = 'block';
 
-    const titleEl = document.createElement('div');
-    titleEl.style.cssText =
-      'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
-    titleEl.innerHTML = this.currentTitle;
+  // Create title element
+  const titleEl = document.createElement('div');
+  titleEl.style.cssText =
+    'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
+  titleEl.innerHTML = this.currentTitle;
 
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'infobox-body';
-    bodyEl.innerHTML = this.currentBody;
+  // Create body element with the HTML that contains the placeholder
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'infobox-body';
+  bodyEl.innerHTML = this.currentBody;
 
-    this.container.appendChild(titleEl);
-    this.container.appendChild(bodyEl);
+  // Append title and body to container
+  this.container.appendChild(titleEl);
+  this.container.appendChild(bodyEl);
+
+  // Find the placeholder and replace it with the dropdown
+  const placeholder = bodyEl.querySelector('#infobox-dropdown-placeholder');
+  if (placeholder) {
+    placeholder.replaceWith(this.dropdown);
+  } else {
+    // Fallback: if placeholder not found, just append at the end
     this.container.appendChild(this.dropdown);
-    this.container.style.display = 'block';
   }
+
+  this.container.style.display = 'block';
+}
 
   async updateData(
     articleMap: Map<string, Record<string, unknown>[]>,
