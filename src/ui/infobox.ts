@@ -418,7 +418,6 @@ export class InfoBox {
       this.dropdown.appendChild(optionEl);
     });
     this.dropdown.style.display = 'block';
-    this.container.appendChild(this.dropdown);
 
     const titleEl = document.createElement('div');
     titleEl.style.cssText =
@@ -430,6 +429,9 @@ export class InfoBox {
     bodyEl.innerHTML = this.currentBody;
 
     this.container.appendChild(titleEl);
+    
+    this.container.appendChild(this.dropdown);
+    
     this.container.appendChild(bodyEl);
     this.container.style.display = 'block';
   }
