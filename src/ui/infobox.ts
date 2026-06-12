@@ -453,13 +453,6 @@ export class InfoBox {
       this.refreshArticle();
     });
 
-    // Close InfoBox when clicking outside
-    document.addEventListener('click', (event) => {
-      if (this.container.style.display !== 'flex') return;
-      if (this.container.contains(event.target as Node)) return;
-      this.hide();
-    });
-
     this.removeListener = viewer.selectedEntityChanged.addEventListener(
       (entity: Entity | undefined) => this.onSelectionChanged(entity),
     );
