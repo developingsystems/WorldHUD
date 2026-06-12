@@ -177,7 +177,8 @@ function getToneColor(tone: number): string {
   let x = Math.min(100, Math.max(-100, tone));
   const sign = x === 0 ? 0 : Math.sign(x);
   const absX = Math.abs(x);
-  const t = sign * Math.pow(absX / 100, 1 / 3);
+  // Use exponent 0.25 (fourth root) for stronger colour differentiation in the ±10 range
+  const t = sign * Math.pow(absX / 100, 0.25);
   const normalized = (t + 1) / 2;
   return `color-mix(in oklab, color-mix(in oklab, red ${(1 - normalized) * 100}%, gray 100%), green ${normalized * 100}%)`;
 }
@@ -198,7 +199,7 @@ async function renderGdelt(
   articleMap: Map<string, Record<string, unknown>[]>,
   articleSources: ArticleSources,
   currentSource: 'fundus' | 'gdeltnews' | 'trafilatura',
-): Promise<{ title: string; body: string }> {
+): Promise<{ title: string; body: string; footer: string }> {
   const { sourceUrl, headlines, globalEventId } = snapshot;
   const esc = (s: unknown): string => {
     const str = s == null ? '' : String(s);
@@ -280,23 +281,21 @@ async function renderGdelt(
   const toneDisplay = formatTone(articleTone);
 
   const title = sanitize(rawTitle);
-  const rawBody = `
-    <div class="infobox-body">
-      ${descriptionHtml}
-      ${eventsHtml}
-      <hr>
-      <div id="infobox-dropdown-placeholder"></div>
-      <div class="infobox-article">
-        ${articleHtml}
-      </div>
-      <hr>
-      <div class="infobox-footer">
-        <span class="tone-label">Article tone: </span><span class="tone-value" style="color: ${toneColor};">${toneDisplay}</span>
-      </div>
+  const scrollableContent = `
+    ${descriptionHtml}
+    ${eventsHtml}
+    <hr>
+    <div id="infobox-dropdown-placeholder"></div>
+    <div class="infobox-article">
+      ${articleHtml}
     </div>
   `;
-  const body = sanitize(rawBody);
-  return { title, body };
+  const footerHtml = `
+    <div class="infobox-footer">
+      <span class="tone-label">Article tone: </span><span class="tone-value" style="color: ${toneColor};">${toneDisplay}</span>
+    </div>
+  `;
+  return { title, body: scrollableContent, footer: footerHtml };
 }
 
 // =============================================================================
@@ -310,7 +309,8 @@ export class InfoBox {
   private dropdown: HTMLSelectElement;
   private currentSource: 'fundus' | 'gdeltnews' | 'trafilatura' = 'gdeltnews';
   private currentTitle: string = '';
-  private currentBody: string = '';
+  private currentScrollable: string = '';
+  private currentFooter: string = '';
   private currentSnapshot: Snapshot | null = null;
 
   constructor(
@@ -361,12 +361,19 @@ export class InfoBox {
           border-radius: 4px;
           font-size: 12px;
         }
+        .infobox-scrollable {
+          overflow-y: auto;
+          flex: 1;
+        }
         .infobox-footer {
           display: flex;
           justify-content: flex-start;
           font-size: 12px;
           color: gray;
+          padding: 8px 0 0 0;
+          border-top: 1px solid #444;
           margin-top: 8px;
+          flex-shrink: 0;
         }
         .tone-label {
           font-weight: normal;
@@ -388,7 +395,6 @@ export class InfoBox {
       right: 10px;
       width: 480px;
       max-height: 80vh;
-      overflow-y: auto;
       background: rgba(0, 0, 0, 0.80);
       color: white;
       padding: 12px;
@@ -396,6 +402,9 @@ export class InfoBox {
       font-size: 13px;
       z-index: 1000;
       display: none;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     `;
     viewer.container.appendChild(this.container);
 
@@ -438,22 +447,24 @@ export class InfoBox {
       this.currentSource = best.source;
     }
 
-    const { title, body } = await renderGdelt(snapshot, this.articleMap, this.articleSources, this.currentSource);
+    const { title, body, footer } = await renderGdelt(snapshot, this.articleMap, this.articleSources, this.currentSource);
     this.currentTitle = title;
-    this.currentBody = body;
+    this.currentScrollable = body;
+    this.currentFooter = footer;
     this.show();
   }
 
   private async refreshArticle(): Promise<void> {
     if (!this.currentSnapshot) return;
-    const { title, body } = await renderGdelt(
+    const { title, body, footer } = await renderGdelt(
       this.currentSnapshot,
       this.articleMap,
       this.articleSources,
       this.currentSource,
     );
     this.currentTitle = title;
-    this.currentBody = body;
+    this.currentScrollable = body;
+    this.currentFooter = footer;
     this.show();
   }
 
@@ -485,25 +496,30 @@ export class InfoBox {
       'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
     titleEl.innerHTML = this.currentTitle;
 
-    // Create body element with the HTML that contains the placeholder
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'infobox-body';
-    bodyEl.innerHTML = this.currentBody;
+    // Create scrollable content container
+    const scrollableDiv = document.createElement('div');
+    scrollableDiv.className = 'infobox-scrollable';
+    scrollableDiv.innerHTML = this.currentScrollable;
 
-    // Append title and body to container
+    // Create footer element
+    const footerDiv = document.createElement('div');
+    footerDiv.innerHTML = this.currentFooter;
+
+    // Append everything
     this.container.appendChild(titleEl);
-    this.container.appendChild(bodyEl);
+    this.container.appendChild(scrollableDiv);
+    this.container.appendChild(footerDiv);
 
-    // Find the placeholder and replace it with the dropdown
-    const placeholder = bodyEl.querySelector('#infobox-dropdown-placeholder');
+    // Insert dropdown into its placeholder
+    const placeholder = scrollableDiv.querySelector('#infobox-dropdown-placeholder');
     if (placeholder) {
       placeholder.replaceWith(this.dropdown);
     } else {
-      // Fallback: if placeholder not found, just append at the end
+      // Fallback
       this.container.appendChild(this.dropdown);
     }
 
-    this.container.style.display = 'block';
+    this.container.style.display = 'flex';
   }
 
   async updateData(
@@ -530,14 +546,15 @@ export class InfoBox {
       if (best) {
         this.currentSource = best.source;
       }
-      const { title, body } = await renderGdelt(
+      const { title, body, footer } = await renderGdelt(
         this.currentSnapshot,
         articleMap,
         this.articleSources,
         this.currentSource,
       );
       this.currentTitle = title;
-      this.currentBody = body;
+      this.currentScrollable = body;
+      this.currentFooter = footer;
       this.show();
     }
   }
