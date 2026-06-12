@@ -174,27 +174,21 @@ function escapeHtml(text: string): string {
 // Helper: Get tone color with non‑linear mapping and three‑stop gradient
 // =============================================================================
 function getToneColor(tone: number): string {
-  // Clamp tone to valid range
   let x = Math.min(100, Math.max(-100, tone));
   const sign = x === 0 ? 0 : Math.sign(x);
   const absX = Math.abs(x);
-  // Non‑linear mapping: sat = (|tone|/100)^exponent
-  const sat = Math.pow(absX / 100, 0.15);
-  // Normalized position in [0,1] where 0 = -100, 0.5 = 0, 1 = +100
+  const sat = Math.pow(absX / 100, 0.15); // exponent = 0.15
   const normalized = sign > 0 ? 0.5 + sat * 0.5 : 0.5 - sat * 0.5;
-  // Define stops
   const stops = [
     { pos: 0.0, color: '#FF0000' },
     { pos: 0.5, color: '#808080' },
     { pos: 1.0, color: '#00FF00' }
   ];
-  // Find interpolation segment
   let i = 0;
   while (i < stops.length - 1 && stops[i+1].pos < normalized) i++;
   const s1 = stops[i];
   const s2 = stops[i+1];
   const ratio = (normalized - s1.pos) / (s2.pos - s1.pos);
-  // Use color-mix for smooth interpolation
   return `color-mix(in oklab, ${s1.color} ${(1 - ratio) * 100}%, ${s2.color})`;
 }
 
@@ -432,6 +426,13 @@ export class InfoBox {
       this.refreshArticle();
     });
 
+    // Close InfoBox when clicking outside
+    document.addEventListener('click', (event) => {
+      if (this.container.style.display !== 'flex') return;
+      if (this.container.contains(event.target as Node)) return;
+      this.hide();
+    });
+
     this.removeListener = viewer.selectedEntityChanged.addEventListener(
       (entity: Entity | undefined) => this.onSelectionChanged(entity),
     );
@@ -530,11 +531,15 @@ export class InfoBox {
     if (placeholder) {
       placeholder.replaceWith(this.dropdown);
     } else {
-      // Fallback
+      // Fallback: if placeholder not found, just append at the end
       this.container.appendChild(this.dropdown);
     }
 
     this.container.style.display = 'flex';
+  }
+
+  private hide(): void {
+    this.container.style.display = 'none';
   }
 
   async updateData(
