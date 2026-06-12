@@ -1,4 +1,3 @@
-// src/workers/markdown-worker.ts
 import { marked } from 'marked';
 
 self.onmessage = async (event: MessageEvent<string>) => {
