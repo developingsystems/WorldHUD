@@ -171,52 +171,31 @@ function escapeHtml(text: string): string {
 }
 
 // =============================================================================
-// Helper: Get tone color with non‑linear mapping (enhances -10..10 range)
+// Helper: Get tone color with non‑linear mapping and three‑stop gradient
 // =============================================================================
 function getToneColor(tone: number): string {
-    // Clamp the tone to the official -100 to +100 range
-    let x = Math.min(100, Math.max(-100, tone));
-
-    // Non-linear mapping: Compress the outer ranges (-100 to -15 and 15 to 100)
-    // and stretch the middle range (-15 to 15) to make subtle differences pop.
-    // This is a cube function, which preserves the tone's sign (positive/negative).
-    const sign = x === 0 ? 0 : Math.sign(x);
-    const absX = Math.abs(x);
-    // The 0.5 power (square root) creates the desired 'stretch' in the middle.
-    let t = sign * Math.pow(absX / 100, 0.5);
-
-    // Normalize the value to a 0-1 range, where 0 = red (very negative) and 1 = green (very positive).
-    // A tone of 0 is exactly in the middle (0.5).
-    const normalized = (t + 1) / 2;
-
-    // Define the key colors for the gradient stops.
-    // Adjust these hex values to fine-tune the hue and intensity to your liking.
-    const deepRed = '#FF0000';
-    const orange = '#FF8C00';
-    const yellow = '#FFD700';
-    const lightGreen = '#90EE90';
-    const deepGreen = '#00FF00';
-
-    // Chain color-mix to create a 5-stop gradient.
-    // The logic uses three 'segments' of the 0-1 range: red→orange (0.0→0.25),
-    // orange→yellow (0.25→0.5), yellow→lightGreen (0.5→0.75), and lightGreen→green (0.75→1.0).
-    if (normalized < 0.25) {
-        // Mix between deepRed and orange in the first quarter.
-        const mixRatio = normalized / 0.25;
-        return `color-mix(in oklab, ${deepRed} ${(1 - mixRatio) * 100}%, ${orange})`;
-    } else if (normalized < 0.5) {
-        // Mix between orange and yellow in the second quarter.
-        const mixRatio = (normalized - 0.25) / 0.25;
-        return `color-mix(in oklab, ${orange} ${(1 - mixRatio) * 100}%, ${yellow})`;
-    } else if (normalized < 0.75) {
-        // Mix between yellow and lightGreen in the third quarter.
-        const mixRatio = (normalized - 0.5) / 0.25;
-        return `color-mix(in oklab, ${yellow} ${(1 - mixRatio) * 100}%, ${lightGreen})`;
-    } else {
-        // Mix between lightGreen and deepGreen in the last quarter.
-        const mixRatio = (normalized - 0.75) / 0.25;
-        return `color-mix(in oklab, ${lightGreen} ${(1 - mixRatio) * 100}%, ${deepGreen})`;
-    }
+  // Clamp tone to valid range
+  let x = Math.min(100, Math.max(-100, tone));
+  const sign = x === 0 ? 0 : Math.sign(x);
+  const absX = Math.abs(x);
+  // Non‑linear mapping: sat = (|tone|/100)^exponent
+  const sat = Math.pow(absX / 100, 0.2440);
+  // Normalized position in [0,1] where 0 = -100, 0.5 = 0, 1 = +100
+  const normalized = sign > 0 ? 0.5 + sat * 0.5 : 0.5 - sat * 0.5;
+  // Define stops
+  const stops = [
+    { pos: 0.0, color: '#FF0000' },
+    { pos: 0.5, color: '#808080' },
+    { pos: 1.0, color: '#00FF00' }
+  ];
+  // Find interpolation segment
+  let i = 0;
+  while (i < stops.length - 1 && stops[i+1].pos < normalized) i++;
+  const s1 = stops[i];
+  const s2 = stops[i+1];
+  const ratio = (normalized - s1.pos) / (s2.pos - s1.pos);
+  // Use color-mix for smooth interpolation
+  return `color-mix(in oklab, ${s1.color} ${(1 - ratio) * 100}%, ${s2.color})`;
 }
 
 // =============================================================================
