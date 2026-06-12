@@ -483,6 +483,10 @@ export class InfoBox {
     this.currentController = new AbortController();
     const signal = this.currentController.signal;
 
+    // Clear previous content and ensure container is visible (no loading message)
+    this.container.innerHTML = '';
+    this.container.style.display = 'flex';
+    
     const p = entity.properties?.getValue() || {};
     const snapshot: Snapshot = {
       sourceUrl: (p.sourceUrl as string) || '',
