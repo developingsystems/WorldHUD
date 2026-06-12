@@ -172,6 +172,24 @@ function escapeHtml(text: string): string {
 }
 
 // =============================================================================
+// Helper: Get tone color with non‑linear mapping (enhances -10..10 range)
+// =============================================================================
+function getToneColor(tone: number): string {
+  // Clamp to official -100..100 range
+  let x = Math.min(100, Math.max(-100, tone));
+  // Non‑linear mapping: compress outer ranges, expand middle
+  // Uses cube root style (power 1/3) for smoother transition
+  const sign = x === 0 ? 0 : Math.sign(x);
+  const absX = Math.abs(x);
+  // Map -100..0..100 to -1..0..1, apply power (1/3) to stretch middle, then map back
+  const t = sign * Math.pow(absX / 100, 1 / 3);
+  // Normalize to 0..1 for color mixing
+  const normalized = (t + 1) / 2;
+  // Mix red → gray → green in oklab color space
+  return `color-mix(in oklab, color-mix(in oklab, red ${(1 - normalized) * 100}%, gray 100%), green ${normalized * 100}%)`;
+}
+
+// =============================================================================
 // Render function with rich Trafilatura support (async)
 // =============================================================================
 async function renderGdelt(
@@ -188,17 +206,20 @@ async function renderGdelt(
 
   const sources = articleSources.get(sourceUrl) || {};
   let rawTitle = '';
-  let descriptionHtml = '';   // declare outside the if block
+  let descriptionHtml = '';
   let articleHtml = '';
 
-  // --- Title & Text based on current source ---
+  // --- Title & Description based on current source ---
   if (currentSource === 'trafilatura' && sources.trafilatura && typeof sources.trafilatura === 'object') {
-    const traf = sources.trafilatura as any;   // move this before using traf
+    const traf = sources.trafilatura as any;
     if (traf.description) {
       descriptionHtml = `<div class="infobox-description">${esc(traf.description)}</div>`;
     }
     const titleFromTraf = traf.title || (headlines && headlines[0]) || 'GDELT Event';
-    rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(titleFromTraf)}</a>`;
+    // Decode HTML entities in title
+    const decode = (s: string) => new DOMParser().parseFromString(s, 'text/html').documentElement.textContent || s;
+    const decodedTitle = decode(titleFromTraf);
+    rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(decodedTitle)}</a>`;
     const markdownText = traf.text || '';
     articleHtml = await renderMarkdown(markdownText);
   } else if (currentSource === 'trafilatura' && typeof sources.trafilatura === 'string') {
@@ -244,8 +265,18 @@ async function renderGdelt(
       </div>`;
   });
 
-  // Article‑level tone (from the first event)
-  const articleTone = siblings[0]?.tone || 0;
+  // --- Article‑level tone (average over all events sharing the same sourceUrl) ---
+  let totalTone = 0;
+  let toneCount = 0;
+  for (const evt of siblings) {
+    const t = evt.tone;
+    if (typeof t === 'number' && !isNaN(t)) {
+      totalTone += t;
+      toneCount++;
+    }
+  }
+  const articleTone = toneCount > 0 ? totalTone / toneCount : 0;
+  const toneColor = getToneColor(articleTone);
 
   const title = sanitize(rawTitle);
   const rawBody = `
@@ -259,7 +290,7 @@ async function renderGdelt(
       </div>
       <hr>
       <div class="infobox-footer">
-        <span class="article-tone">Article Tone: ${articleTone.toFixed(2)}</span>
+        <span class="article-tone" style="color: ${toneColor};">Article Tone: ${articleTone.toFixed(2)}</span>
         <span class="infobox-uuid">UUID: ${esc(entityId)}</span>
       </div>
     </div>
@@ -329,6 +360,17 @@ export class InfoBox {
           border: 1px solid #555;
           border-radius: 4px;
           font-size: 12px;
+        }
+        .infobox-footer {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.7em;
+          color: gray;
+          margin-top: 8px;
+        }
+        .article-tone {
+          font-weight: bold;
+          transition: color 0.2s ease;
         }
       `;
       document.head.appendChild(styleEl);
@@ -413,54 +455,54 @@ export class InfoBox {
     this.show();
   }
 
-private show(): void {
-  this.container.innerHTML = '';
+  private show(): void {
+    this.container.innerHTML = '';
 
-  // Build dropdown options (but don't append yet)
-  const url = this.currentSnapshot?.sourceUrl || '';
-  const sources = this.articleSources.get(url) || {};
-  this.dropdown.innerHTML = '';
-  const options: { value: 'fundus' | 'gdeltnews' | 'trafilatura'; label: string }[] = [
-    { value: 'fundus', label: 'Fundus' },
-    { value: 'gdeltnews', label: 'gdeltnews' },
-    { value: 'trafilatura', label: 'Trafilatura' },
-  ];
-  options.forEach(opt => {
-    const optionEl = document.createElement('option');
-    optionEl.value = opt.value;
-    optionEl.textContent = opt.label;
-    if (!sources[opt.value]) optionEl.disabled = true;
-    if (opt.value === this.currentSource) optionEl.selected = true;
-    this.dropdown.appendChild(optionEl);
-  });
-  this.dropdown.style.display = 'block';
+    // Build dropdown (but don't append yet)
+    const url = this.currentSnapshot?.sourceUrl || '';
+    const sources = this.articleSources.get(url) || {};
+    this.dropdown.innerHTML = '';
+    const options: { value: 'fundus' | 'gdeltnews' | 'trafilatura'; label: string }[] = [
+      { value: 'fundus', label: 'Fundus' },
+      { value: 'gdeltnews', label: 'gdeltnews' },
+      { value: 'trafilatura', label: 'Trafilatura' },
+    ];
+    options.forEach(opt => {
+      const optionEl = document.createElement('option');
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      if (!sources[opt.value]) optionEl.disabled = true;
+      if (opt.value === this.currentSource) optionEl.selected = true;
+      this.dropdown.appendChild(optionEl);
+    });
+    this.dropdown.style.display = 'block';
 
-  // Create title element
-  const titleEl = document.createElement('div');
-  titleEl.style.cssText =
-    'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
-  titleEl.innerHTML = this.currentTitle;
+    // Create title element
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText =
+      'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
+    titleEl.innerHTML = this.currentTitle;
 
-  // Create body element with the HTML that contains the placeholder
-  const bodyEl = document.createElement('div');
-  bodyEl.className = 'infobox-body';
-  bodyEl.innerHTML = this.currentBody;
+    // Create body element with the HTML that contains the placeholder
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'infobox-body';
+    bodyEl.innerHTML = this.currentBody;
 
-  // Append title and body to container
-  this.container.appendChild(titleEl);
-  this.container.appendChild(bodyEl);
+    // Append title and body to container
+    this.container.appendChild(titleEl);
+    this.container.appendChild(bodyEl);
 
-  // Find the placeholder and replace it with the dropdown
-  const placeholder = bodyEl.querySelector('#infobox-dropdown-placeholder');
-  if (placeholder) {
-    placeholder.replaceWith(this.dropdown);
-  } else {
-    // Fallback: if placeholder not found, just append at the end
-    this.container.appendChild(this.dropdown);
+    // Find the placeholder and replace it with the dropdown
+    const placeholder = bodyEl.querySelector('#infobox-dropdown-placeholder');
+    if (placeholder) {
+      placeholder.replaceWith(this.dropdown);
+    } else {
+      // Fallback: if placeholder not found, just append at the end
+      this.container.appendChild(this.dropdown);
+    }
+
+    this.container.style.display = 'block';
   }
-
-  this.container.style.display = 'block';
-}
 
   async updateData(
     articleMap: Map<string, Record<string, unknown>[]>,
