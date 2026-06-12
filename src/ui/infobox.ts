@@ -98,7 +98,6 @@ interface Snapshot {
   goldstein: number;
   numMentions: number;
   tone: number;
-  entityId: string;
   articleMap: Map<string, Record<string, unknown>[]>;
 }
 
@@ -184,6 +183,14 @@ function getToneColor(tone: number): string {
 }
 
 // =============================================================================
+// Format tone number with sign (+ for positive, - for negative)
+// =============================================================================
+function formatTone(tone: number): string {
+  const sign = tone > 0 ? '+' : '';
+  return sign + tone.toFixed(2);
+}
+
+// =============================================================================
 // Render function with rich Trafilatura support (async)
 // =============================================================================
 async function renderGdelt(
@@ -192,7 +199,7 @@ async function renderGdelt(
   articleSources: ArticleSources,
   currentSource: 'fundus' | 'gdeltnews' | 'trafilatura',
 ): Promise<{ title: string; body: string }> {
-  const { sourceUrl, headlines, globalEventId, entityId } = snapshot;
+  const { sourceUrl, headlines, globalEventId } = snapshot;
   const esc = (s: unknown): string => {
     const str = s == null ? '' : String(s);
     return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -270,7 +277,7 @@ async function renderGdelt(
   }
   const articleTone = toneCount > 0 ? totalTone / toneCount : 0;
   const toneColor = getToneColor(articleTone);
-  const toneFormatted = articleTone.toFixed(2);
+  const toneDisplay = formatTone(articleTone);
 
   const title = sanitize(rawTitle);
   const rawBody = `
@@ -284,7 +291,7 @@ async function renderGdelt(
       </div>
       <hr>
       <div class="infobox-footer">
-        <span class="tone-label">Article tone: </span><span class="tone-value" style="color: ${toneColor};">${toneFormatted}</span>
+        <span class="tone-label">Article tone: </span><span class="tone-value" style="color: ${toneColor};">${toneDisplay}</span>
       </div>
     </div>
   `;
@@ -420,7 +427,6 @@ export class InfoBox {
       goldstein: (p.goldstein as number) || 0,
       numMentions: (p.numMentions as number) || 0,
       tone: (p.tone as number) || 0,
-      entityId: entity.id,
       articleMap: new Map(this.articleMap),
     };
     this.currentSnapshot = snapshot;
