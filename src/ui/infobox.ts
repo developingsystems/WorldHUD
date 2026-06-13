@@ -437,7 +437,7 @@ export class InfoBox {
       position: absolute;
       top: 44px;
       right: 10px;
-      width: 600px;
+      width: 560px;
       max-height: 80vh;
       background: rgba(0, 0, 0, 0.80);
       color: white;
