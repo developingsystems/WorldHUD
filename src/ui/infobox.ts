@@ -338,7 +338,7 @@ async function renderGdelt(
 }
 
 // =============================================================================
-// InfoBox class (async render updates with cancellation, no custom click listener)
+// InfoBox class (async render updates with cancellation, no automatic refresh)
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -482,7 +482,7 @@ export class InfoBox {
     // Clear previous content and ensure container is visible (no loading message)
     this.container.innerHTML = '';
     this.container.style.display = 'flex';
-    
+
     const p = entity.properties?.getValue() || {};
     const snapshot: Snapshot = {
       sourceUrl: (p.sourceUrl as string) || '',
@@ -624,6 +624,7 @@ export class InfoBox {
   ): Promise<void> {
     this.articleMap = articleMap;
 
+    // Merge new sources for the currently open snapshot (if any)
     if (this.currentSnapshot) {
       const url = this.currentSnapshot.sourceUrl;
       const oldSources = this.articleSources.get(url) || {};
@@ -636,36 +637,19 @@ export class InfoBox {
       this.articleSources = articleSources;
     }
 
+    // Update dropdown options: enable/disable based on availability
     if (this.currentSnapshot) {
-      if (this.currentController) {
-        this.currentController.abort();
+      const url = this.currentSnapshot.sourceUrl;
+      const sources = this.articleSources.get(url) || {};
+      const options = this.dropdown.options;
+      for (let i = 0; i < options.length; i++) {
+        const opt = options[i];
+        const source = opt.value as 'fundus' | 'gdeltnews' | 'trafilatura';
+        opt.disabled = !sources[source];
       }
-      this.currentController = new AbortController();
-      const signal = this.currentController.signal;
-      try {
-        const sources = this.articleSources.get(this.currentSnapshot.sourceUrl) || {};
-        const best = selectBestSource(sources);
-        if (best) {
-          this.currentSource = best.source;
-        }
-        const { title, body, footer } = await renderGdelt(
-          this.currentSnapshot,
-          articleMap,
-          this.articleSources,
-          this.currentSource,
-          signal,
-        );
-        if (signal.aborted) return;
-        this.currentTitle = title;
-        this.currentScrollable = body;
-        this.currentFooter = footer;
-        this.show();
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') return;
-        console.error('Update error:', err);
-      } finally {
-        if (this.currentController === this.currentController) this.currentController = null;
-      }
+
+      // Do NOT automatically re‑select best source; let the user choose manually.
+      // Do NOT call renderGdelt or show() – preserve the current view.
     }
   }
 
