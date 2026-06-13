@@ -338,7 +338,7 @@ async function renderGdelt(
 }
 
 // =============================================================================
-// InfoBox class (async render updates with cancellation, no automatic refresh)
+// InfoBox class (async render updates with cancellation, scroll preservation)
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -535,6 +535,10 @@ export class InfoBox {
     this.currentController = new AbortController();
     const signal = this.currentController.signal;
 
+    // Save current scroll position
+    const scrollable = this.container.querySelector('.infobox-scrollable');
+    const savedScrollTop = scrollable ? scrollable.scrollTop : 0;
+
     try {
       const { title, body, footer } = await renderGdelt(
         this.currentSnapshot,
@@ -547,7 +551,14 @@ export class InfoBox {
       this.currentTitle = title;
       this.currentScrollable = body;
       this.currentFooter = footer;
-      this.show();
+      this.show();  // This rebuilds the scrollable area, resetting scroll
+      // Restore scroll position after DOM update
+      if (savedScrollTop > 0) {
+        requestAnimationFrame(() => {
+          const newScrollable = this.container.querySelector('.infobox-scrollable');
+          if (newScrollable) newScrollable.scrollTop = savedScrollTop;
+        });
+      }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       console.error('Refresh error:', err);
