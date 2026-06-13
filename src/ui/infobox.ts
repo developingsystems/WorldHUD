@@ -386,7 +386,7 @@ export class InfoBox {
           margin-bottom: 0;
         }
         .infobox-article {
-          max-height: 50vh;
+          max-height: 65vh;
           overflow-y: auto;
           margin-top: 8px;
           white-space: normal;
@@ -437,7 +437,7 @@ export class InfoBox {
       position: absolute;
       top: 44px;
       right: 10px;
-      width: 480px;
+      width: 600px;
       max-height: 80vh;
       background: rgba(0, 0, 0, 0.80);
       color: white;
