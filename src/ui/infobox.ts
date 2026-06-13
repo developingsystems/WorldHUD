@@ -238,7 +238,7 @@ async function renderGdelt(
   articleSources: ArticleSources,
   currentSource: 'fundus' | 'gdeltnews' | 'trafilatura',
   signal?: AbortSignal,
-): Promise<{ title: string; body: string; footer: string }> {
+): Promise<{ title: string; body: string; toneHtml: string }> {
   const { sourceUrl, headlines, globalEventId } = snapshot;
   const esc = (s: unknown): string => {
     const str = s == null ? '' : String(s);
@@ -320,6 +320,7 @@ async function renderGdelt(
   const toneDisplay = formatTone(articleTone);
 
   const title = sanitize(rawTitle);
+  const toneHtml = `<div class="article-tone" style="color: ${toneColor};">Article tone: ${toneDisplay}</div>`;
   const scrollableContent = `
     ${descriptionHtml}
     ${eventsHtml}
@@ -329,12 +330,7 @@ async function renderGdelt(
       ${articleHtml}
     </div>
   `;
-  const footerHtml = `
-    <div class="infobox-footer">
-      <span class="tone-label">Article tone: </span><span class="tone-value" style="color: ${toneColor};">${toneDisplay}</span>
-    </div>
-  `;
-  return { title, body: scrollableContent, footer: footerHtml };
+  return { title, body: scrollableContent, toneHtml };
 }
 
 // =============================================================================
@@ -349,7 +345,7 @@ export class InfoBox {
   private currentSource: 'fundus' | 'gdeltnews' | 'trafilatura' = 'gdeltnews';
   private currentTitle: string = '';
   private currentScrollable: string = '';
-  private currentFooter: string = '';
+  private currentToneHtml: string = '';
   private currentSnapshot: Snapshot | null = null;
   private currentController: AbortController | null = null;
 
@@ -407,22 +403,12 @@ export class InfoBox {
           overflow-y: auto;
           flex: 1;
         }
-        .infobox-footer {
-          display: flex;
-          justify-content: flex-start;
-          font-size: 12px;
-          color: gray;
-          padding: 8px 0 0 0;
-          border-top: 1px solid #444;
-          margin-top: 8px;
-          flex-shrink: 0;
-        }
-        .tone-label {
-          font-weight: normal;
-          margin-right: 4px;
-        }
-        .tone-value {
+        .article-tone {
           font-weight: bold;
+          font-size: 12px;
+          margin: 8px 0 4px 0;
+          padding-left: 4px;
+          border-left: 3px solid #66aaff;
         }
       `;
       document.head.appendChild(styleEl);
@@ -506,7 +492,7 @@ export class InfoBox {
     }
 
     try {
-      const { title, body, footer } = await renderGdelt(
+      const { title, body, toneHtml } = await renderGdelt(
         snapshot,
         this.articleMap,
         this.articleSources,
@@ -516,7 +502,7 @@ export class InfoBox {
       if (signal.aborted) return;
       this.currentTitle = title;
       this.currentScrollable = body;
-      this.currentFooter = footer;
+      this.currentToneHtml = toneHtml;
       this.show();
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
@@ -540,7 +526,7 @@ export class InfoBox {
     const savedScrollTop = scrollable ? scrollable.scrollTop : 0;
 
     try {
-      const { title, body, footer } = await renderGdelt(
+      const { title, body, toneHtml } = await renderGdelt(
         this.currentSnapshot,
         this.articleMap,
         this.articleSources,
@@ -550,8 +536,8 @@ export class InfoBox {
       if (signal.aborted) return;
       this.currentTitle = title;
       this.currentScrollable = body;
-      this.currentFooter = footer;
-      this.show();  // This rebuilds the scrollable area, resetting scroll
+      this.currentToneHtml = toneHtml;
+      this.show();
       // Restore scroll position after DOM update
       if (savedScrollTop > 0) {
         requestAnimationFrame(() => {
@@ -595,19 +581,19 @@ export class InfoBox {
       'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
     titleEl.innerHTML = this.currentTitle;
 
+    // Create tone element (below title)
+    const toneEl = document.createElement('div');
+    toneEl.innerHTML = this.currentToneHtml;
+
     // Create scrollable content container
     const scrollableDiv = document.createElement('div');
     scrollableDiv.className = 'infobox-scrollable';
     scrollableDiv.innerHTML = this.currentScrollable;
 
-    // Create footer element
-    const footerDiv = document.createElement('div');
-    footerDiv.innerHTML = this.currentFooter;
-
     // Append everything
     this.container.appendChild(titleEl);
+    this.container.appendChild(toneEl);
     this.container.appendChild(scrollableDiv);
-    this.container.appendChild(footerDiv);
 
     // Insert dropdown into its placeholder
     const placeholder = scrollableDiv.querySelector('#infobox-dropdown-placeholder');
