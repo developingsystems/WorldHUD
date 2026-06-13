@@ -391,6 +391,10 @@ export class InfoBox {
           margin-top: 8px;
           white-space: normal;
         }
+        .infobox-article img {
+          max-width: 100%;
+          height: auto;
+        }
         .infobox-source-select {
           width: 100%;
           margin-bottom: 8px;
@@ -421,12 +425,6 @@ export class InfoBox {
         }
         .tone-value {
           font-weight: bold;
-        }
-        .infobox-loading {
-          text-align: center;
-          padding: 20px;
-          color: #aaa;
-          font-style: italic;
         }
       `;
       document.head.appendChild(styleEl);
