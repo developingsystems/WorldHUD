@@ -1,4 +1,4 @@
-import { Viewer, Entity } from 'cesium';
+import { Viewer, Entity, ScreenSpaceEventHandler, ScreenSpaceEventType } from 'cesium';
 import DOMPurify, { type Config } from 'dompurify';
 import { getVerb, getRootVerbPast } from '../data/cameoverbs.js';
 
@@ -437,13 +437,13 @@ export class InfoBox {
     );
 
     // Close InfoBox when clicking on terrain (not on entities)
-    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    handler.setInputAction((click: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
+    handler.setInputAction((click: ScreenSpaceEventHandler.PositionedEvent) => {
       const picked = viewer.scene.pick(click.position);
-      if (!picked || !picked.id || !(picked.id instanceof Cesium.Entity)) {
+      if (!picked || !picked.id || !(picked.id instanceof Entity)) {
         this.hide();
       }
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    }, ScreenSpaceEventType.LEFT_CLICK);
   }
 
   private async onSelectionChanged(entity: Entity): Promise<void> {
@@ -477,13 +477,14 @@ export class InfoBox {
     // Reset auto‑selection flag for this new entity
     this.hasAutoSelected = false;
 
-    // Select best source (synchronous, fast)
+    // Attempt to select the best available source now (if any)
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
     const best = selectBestSource(sources);
     if (best) {
       this.currentSource = best.source;
     }
-    // Mark that we've attempted auto‑selection (even if no source yet)
+    // Mark that we've done the initial auto‑selection attempt for this entity.
+    // This prevents future updates (from polling) from auto‑switching.
     this.hasAutoSelected = true;
 
     try {
