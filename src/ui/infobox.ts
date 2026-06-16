@@ -682,6 +682,13 @@ export class InfoBox {
     }
   }
 
+  /**
+   * Returns the source URL of the currently displayed article, or null if none.
+   */
+  getCurrentUrl(): string | null {
+    return this.currentSnapshot?.sourceUrl ?? null;
+  }
+
   destroy(): void {
     if (this.currentController) {
       this.currentController.abort();
