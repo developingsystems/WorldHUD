@@ -1,4 +1,4 @@
-# Upload all article JSON files (both Fundus and gdeltnews) to a GitHub Release.
+# Upload all article JSON files (both Trafilatura and gdeltnews) to a GitHub Release.
 
 import os
 import subprocess
@@ -14,7 +14,7 @@ def main():
     # For each file, extract the base timestamp (e.g., "20260611164500")
     file_map = {}
     for f in files:
-        # Filenames are either "fundus_TIMESTAMP.json" or "articles_TIMESTAMP.json"
+        # Filenames are either "trafilatura_TIMESTAMP.json" or "gdeltnews_TIMESTAMP.json"
         parts = f.split("_")
         if len(parts) >= 2:
             timestamp = parts[1].replace(".json", "")
