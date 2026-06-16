@@ -6,7 +6,8 @@ import requests
 
 def main():
     # Get all JSON files in the 'articles' directory
-    files = [f for f in os.listdir("articles") if f.endswith(".json")]
+    allowed_prefixes = ("trafilatura_", "gdeltnews_")
+    files = [f for f in os.listdir("articles") if f.endswith(".json") and f.startswith(allowed_prefixes)]
     if not files:
         print("No article files to upload")
         return
