@@ -43,7 +43,7 @@ def main():
                 [
                     "gh", "release", "create", release_tag,
                     "--title", "GDELT Reconstructed Articles",
-                    "--notes", "Automatically updated by gdeltnews and Fundus pipelines.",
+                    "--notes", "Automatically updated by gdeltnews and Trafilatura pipelines.",
                     "--prerelease", "--latest=false"
                 ],
                 check=False,
