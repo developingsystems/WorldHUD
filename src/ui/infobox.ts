@@ -643,7 +643,7 @@ export class InfoBox {
         console.log('No article displayed yet, attempting auto-select');
         const best = selectBestSource(sources);
         console.log('Best source:', best);
-        if (best && best.source !== this.currentSource) {
+        if (best) {
           console.log('Auto-selecting source:', best.source);
           this.currentSource = best.source;
           // Cancel any ongoing render
@@ -674,7 +674,7 @@ export class InfoBox {
             if (this.currentController === this.currentController) this.currentController = null;
           }
         } else {
-          console.log('No better source available, or already best');
+          console.log('No source available yet');
         }
       } else {
         console.log('Article already displayed, not auto-selecting');
