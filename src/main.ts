@@ -78,12 +78,23 @@ async function main() {
   let latestPublishedTs = '';
   let currentDataSource: GeoJsonDataSource | null = null;
 
+  // ---------- Dispatch tracking ----------
+  const dispatched = {
+    gdeltnews: new Set<string>(),
+    trafilatura: new Set<string>(),
+  };
+
   // ---------- Dispatch secrets ----------
   const DISPATCH_URL = import.meta.env.VITE_DISPATCH_URL || '';
   const DISPATCH_SECRET = import.meta.env.VITE_DISPATCH_SECRET || '';
 
   async function dispatchReconstruction(chunkTs: string) {
     if (!DISPATCH_URL) return;
+    if (dispatched.gdeltnews.has(chunkTs)) {
+      console.log(`[dispatch] gdeltnews for ${chunkTs} already dispatched, skipping`);
+      return;
+    }
+    dispatched.gdeltnews.add(chunkTs);
     try {
       await fetch(DISPATCH_URL, {
         method: 'POST',
@@ -100,12 +111,18 @@ async function main() {
       console.log(`[dispatch] Reconstruction requested for ${chunkTs}`);
     } catch (err) {
       console.warn('[dispatch] Failed to request reconstruction:', err);
+      // Remove from set so we can retry later
+      dispatched.gdeltnews.delete(chunkTs);
     }
   }
 
-  // Trafilatura extraction dispatch
   async function dispatchTrafilaturaExtraction(chunkTs: string, urls: string[]) {
     if (!DISPATCH_URL || urls.length === 0) return;
+    if (dispatched.trafilatura.has(chunkTs)) {
+      console.log(`[dispatch] Trafilatura for ${chunkTs} already dispatched, skipping`);
+      return;
+    }
+    dispatched.trafilatura.add(chunkTs);
     try {
       await fetch(DISPATCH_URL, {
         method: 'POST',
@@ -125,6 +142,7 @@ async function main() {
       console.log(`[dispatch] Trafilatura extraction requested for ${chunkTs} (${urls.length} URLs)`);
     } catch (err) {
       console.warn('[dispatch] Failed to request Trafilatura extraction:', err);
+      dispatched.trafilatura.delete(chunkTs);
     }
   }
 
@@ -187,6 +205,14 @@ async function main() {
           fetch(urls.gdeltnews).then(r => r.ok ? r.json() : null),
           fetch(urls.trafilatura).then(r => r.ok ? r.json() : null),
         ]).then(([gdeltnewsData, trafilaturaData]) => {
+          // --- DEBUG: log the keys received ---
+          if (gdeltnewsData) {
+            console.log(`[poll] gdeltnews keys: ${Object.keys(gdeltnewsData).slice(0, 5).join(', ')}${Object.keys(gdeltnewsData).length > 5 ? ' ...' : ''}`);
+          }
+          if (trafilaturaData) {
+            console.log(`[poll] trafilatura keys: ${Object.keys(trafilaturaData).slice(0, 5).join(', ')}${Object.keys(trafilaturaData).length > 5 ? ' ...' : ''}`);
+          }
+
           let updated = false;
           let currentUrlUpdated = false;
           const currentUrl = infoBox.getCurrentUrl();
@@ -217,7 +243,8 @@ async function main() {
         }).catch(() => {});
       };
 
-      tryFetch();
+      // Initial delay of 2 seconds to allow CDN/propagation
+      setTimeout(tryFetch, 2000);
       (cached as any)._articlePollInterval = setInterval(tryFetch, 10000);
     }
   }
