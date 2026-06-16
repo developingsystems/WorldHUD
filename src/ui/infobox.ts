@@ -610,6 +610,7 @@ export class InfoBox {
     articleMap: Map<string, Record<string, unknown>[]>,
     articleSources: ArticleSources,
   ): Promise<void> {
+    console.log('updateData called');
     this.articleMap = articleMap;
 
     // Merge new sources for the currently open snapshot (if any)
@@ -621,6 +622,7 @@ export class InfoBox {
       const updatedSources = new Map(articleSources);
       updatedSources.set(url, merged);
       this.articleSources = updatedSources;
+      console.log('Merged sources for', url, merged);
     } else {
       this.articleSources = articleSources;
     }
@@ -638,8 +640,11 @@ export class InfoBox {
 
       // Auto‑select the best source if we haven't displayed an article yet
       if (!this.articleDisplayed) {
+        console.log('No article displayed yet, attempting auto-select');
         const best = selectBestSource(sources);
+        console.log('Best source:', best);
         if (best && best.source !== this.currentSource) {
+          console.log('Auto-selecting source:', best.source);
           this.currentSource = best.source;
           // Cancel any ongoing render
           if (this.currentController) {
@@ -660,6 +665,7 @@ export class InfoBox {
             this.currentScrollable = body;
             this.currentToneHtml = toneHtml;
             this.articleDisplayed = hasArticle;
+            console.log('Auto-render done, hasArticle =', hasArticle);
             this.show();
           } catch (err) {
             if ((err as Error).name === 'AbortError') return;
@@ -667,7 +673,11 @@ export class InfoBox {
           } finally {
             if (this.currentController === this.currentController) this.currentController = null;
           }
+        } else {
+          console.log('No better source available, or already best');
         }
+      } else {
+        console.log('Article already displayed, not auto-selecting');
       }
     }
   }
