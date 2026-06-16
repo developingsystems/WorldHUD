@@ -25,7 +25,7 @@ async function fetchAndCacheChunk(
 ): Promise<{
   geojson: import('geojson').FeatureCollection;
   articleMap: Map<string, Record<string, unknown>[]>;
-  articleSources: Map<string, { fundus?: string; gdeltnews?: string; trafilatura?: string }>;
+  articleSources: Map<string, { gdeltnews?: string; trafilatura?: string }>;
 }> {
   const { geojson } = await fetchChunk(ts, signal);
 
@@ -39,8 +39,8 @@ async function fetchAndCacheChunk(
     }
   }
 
-  // No initial JSON fetch – the polling loop will get all three later.
-  const articleSources = new Map<string, { fundus?: string; gdeltnews?: string; trafilatura?: string }>();
+  // No initial JSON fetch – the polling loop will get all later.
+  const articleSources = new Map<string, { gdeltnews?: string; trafilatura?: string }>();
 
   return { geojson, articleMap, articleSources };
 }
@@ -68,7 +68,7 @@ async function main() {
   const chunkCache = new Map<string, {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
-    articleSources: Map<string, { fundus?: string; gdeltnews?: string; trafilatura?: string }>;
+    articleSources: Map<string, { gdeltnews?: string; trafilatura?: string }>;
   }>();
 
   // InfoBox must be created BEFORE the initial chunk load so that updateDisplay
@@ -103,31 +103,7 @@ async function main() {
     }
   }
 
-  async function dispatchFundusExtraction(chunkTs: string, urls: string[]) {
-    if (!DISPATCH_URL || urls.length === 0) return;
-    try {
-      await fetch(DISPATCH_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Auth-Secret': DISPATCH_SECRET,
-        },
-        body: JSON.stringify({
-          ref: 'main',
-          workflow_id: 'fundus',
-          inputs: {
-            chunk_timestamp: chunkTs,
-            urls: JSON.stringify(urls),
-          },
-        }),
-      });
-      console.log(`[dispatch] Fundus extraction requested for ${chunkTs} (${urls.length} URLs)`);
-    } catch (err) {
-      console.warn('[dispatch] Failed to request Fundus extraction:', err);
-    }
-  }
-
-  // NEW: Trafilatura extraction dispatch
+  // Trafilatura extraction dispatch
   async function dispatchTrafilaturaExtraction(chunkTs: string, urls: string[]) {
     if (!DISPATCH_URL || urls.length === 0) return;
     try {
@@ -174,7 +150,7 @@ async function main() {
   function updateDisplay(ts: string, cached: {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
-    articleSources: Map<string, { fundus?: string; gdeltnews?: string; trafilatura?: string }>;
+    articleSources: Map<string, { gdeltnews?: string; trafilatura?: string }>;
   }) {
     const newDs = new GeoJsonDataSource('chunk');
     newDs.load(cached.geojson, {
@@ -190,12 +166,12 @@ async function main() {
 
     infoBox.updateData(cached.articleMap, cached.articleSources);
 
-    // ---------- Polling retry for all three article JSON files ----------
+    // ---------- Polling retry for both article JSON files ----------
     const existingInterval = (cached as any)._articlePollInterval;
     if (existingInterval) clearInterval(existingInterval);
 
     const hasAnyArticle = [...cached.articleSources.values()].some(
-      (s) => s.fundus || s.gdeltnews || s.trafilatura,
+      (s) => s.gdeltnews || s.trafilatura,
     );
 
     if (!hasAnyArticle) {
@@ -203,24 +179,18 @@ async function main() {
       const base = 'https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles';
       const urls = {
         gdeltnews: proxy + encodeURIComponent(`${base}/gdeltnews_${ts}.json`),
-        fundus: proxy + encodeURIComponent(`${base}/fundus_${ts}.json`),
         trafilatura: proxy + encodeURIComponent(`${base}/trafilatura_${ts}.json`),
       };
 
       const tryFetch = () => {
         Promise.all([
           fetch(urls.gdeltnews).then(r => r.ok ? r.json() : null),
-          fetch(urls.fundus).then(r => r.ok ? r.json() : null),
           fetch(urls.trafilatura).then(r => r.ok ? r.json() : null),
-        ]).then(([gdeltnewsData, fundusData, trafilaturaData]) => {
+        ]).then(([gdeltnewsData, trafilaturaData]) => {
           let updated = false;
           for (const u of cached.articleMap.keys()) {
             if (gdeltnewsData?.[u]) {
               cached.articleSources.set(u, { ...cached.articleSources.get(u), gdeltnews: gdeltnewsData[u] });
-              updated = true;
-            }
-            if (fundusData?.[u]) {
-              cached.articleSources.set(u, { ...cached.articleSources.get(u), fundus: fundusData[u] });
               updated = true;
             }
             if (trafilaturaData?.[u]) {
@@ -322,7 +292,6 @@ async function main() {
         chunkCache.set(ts, data);
         dispatchReconstruction(ts);
         const urls = [...data.articleMap.keys()];
-        dispatchFundusExtraction(ts, urls);
         dispatchTrafilaturaExtraction(ts, urls);
       } catch (err) {
         if ((err as any).name === 'AbortError') return;
@@ -351,7 +320,6 @@ async function main() {
             chunkCache.set(newTs, data);
             dispatchReconstruction(newTs);
             const urls = [...data.articleMap.keys()];
-            dispatchFundusExtraction(newTs, urls);
             dispatchTrafilaturaExtraction(newTs, urls);
           });
         }
@@ -388,7 +356,6 @@ async function main() {
     schedulePreFetch();
     dispatchReconstruction(initialTs);
     const urls = [...data.articleMap.keys()];
-    dispatchFundusExtraction(initialTs, urls);
     dispatchTrafilaturaExtraction(initialTs, urls);
   } catch (err) {
     console.error('Initial chunk load failed:', err);
