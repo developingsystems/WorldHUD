@@ -188,18 +188,28 @@ async function main() {
           fetch(urls.trafilatura).then(r => r.ok ? r.json() : null),
         ]).then(([gdeltnewsData, trafilaturaData]) => {
           let updated = false;
+          let currentUrlUpdated = false;
+          const currentUrl = infoBox.getCurrentUrl();
+
           for (const u of cached.articleMap.keys()) {
             if (gdeltnewsData?.[u]) {
               cached.articleSources.set(u, { ...cached.articleSources.get(u), gdeltnews: gdeltnewsData[u] });
               updated = true;
+              if (currentUrl && u === currentUrl) currentUrlUpdated = true;
             }
             if (trafilaturaData?.[u]) {
               cached.articleSources.set(u, { ...cached.articleSources.get(u), trafilatura: trafilaturaData[u] });
               updated = true;
+              if (currentUrl && u === currentUrl) currentUrlUpdated = true;
             }
           }
+
           if (updated) {
             infoBox.updateData(cached.articleMap, cached.articleSources);
+          }
+
+          // Clear interval ONLY if the current article is now available, or if no article is selected.
+          if (currentUrlUpdated || !currentUrl) {
             const intervalId = (cached as any)._articlePollInterval;
             if (intervalId) clearInterval(intervalId);
             (cached as any)._articlePollInterval = null;
