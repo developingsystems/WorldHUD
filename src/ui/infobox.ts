@@ -327,7 +327,7 @@ export class InfoBox {
   private currentToneHtml: string = '';
   private currentSnapshot: Snapshot | null = null;
   private currentController: AbortController | null = null;
-  private hasAutoSelected: boolean = false;
+  private articleDisplayed: boolean = false;
 
   constructor(
     viewer: Viewer,
@@ -474,8 +474,8 @@ export class InfoBox {
     };
     this.currentSnapshot = snapshot;
 
-    // Reset auto‑selection flag for this new entity
-    this.hasAutoSelected = false;
+    // Reset flag for this new entity – no article displayed yet
+    this.articleDisplayed = false;
 
     // Attempt to select the best available source now (if any)
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
@@ -483,9 +483,6 @@ export class InfoBox {
     if (best) {
       this.currentSource = best.source;
     }
-    // Mark that we've done the initial auto‑selection attempt for this entity.
-    // This prevents future updates (from polling) from auto‑switching.
-    this.hasAutoSelected = true;
 
     try {
       const { title, body, toneHtml } = await renderGdelt(
@@ -499,7 +496,16 @@ export class InfoBox {
       this.currentTitle = title;
       this.currentScrollable = body;
       this.currentToneHtml = toneHtml;
+      // This will display the article (or placeholder if none available)
       this.show();
+      // After show(), we check if we actually displayed an article.
+      // If article text is present, mark as displayed.
+      // If not (placeholder), keep articleDisplayed = false so future updates can auto‑display.
+      const articleContainer = this.container.querySelector('.infobox-article');
+      const hasText = articleContainer && articleContainer.textContent && articleContainer.textContent.trim() !== 'Article text not yet available for this source.';
+      if (hasText) {
+        this.articleDisplayed = true;
+      }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       console.error('Render error:', err);
@@ -632,8 +638,8 @@ export class InfoBox {
         opt.disabled = !sources[source];
       }
 
-      // Auto‑select the best source if we haven't already auto‑selected for this entity
-      if (!this.hasAutoSelected) {
+      // Auto‑select the best source if we haven't displayed an article yet
+      if (!this.articleDisplayed) {
         const best = selectBestSource(sources);
         if (best && best.source !== this.currentSource) {
           this.currentSource = best.source;
@@ -656,6 +662,12 @@ export class InfoBox {
             this.currentScrollable = body;
             this.currentToneHtml = toneHtml;
             this.show();
+            // After show(), check if we now have an article
+            const articleContainer = this.container.querySelector('.infobox-article');
+            const hasText = articleContainer && articleContainer.textContent && articleContainer.textContent.trim() !== 'Article text not yet available for this source.';
+            if (hasText) {
+              this.articleDisplayed = true;
+            }
           } catch (err) {
             if ((err as Error).name === 'AbortError') return;
             console.error('Auto‑update render error:', err);
@@ -663,8 +675,6 @@ export class InfoBox {
             if (this.currentController === this.currentController) this.currentController = null;
           }
         }
-        // Mark that auto‑selection has been attempted (even if no source yet)
-        this.hasAutoSelected = true;
       }
     }
   }
