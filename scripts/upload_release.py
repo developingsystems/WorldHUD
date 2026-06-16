@@ -5,6 +5,25 @@ import os
 import subprocess
 import requests
 import sys
+import json   # <-- new import
+
+def is_valid_article_file(filepath):
+    """Return True if the JSON contains at least one article with text."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return False
+        for url, sources in data.items():
+            if isinstance(sources, dict):
+                for content in sources.values():
+                    if isinstance(content, dict) and content.get('text'):
+                        return True
+                    elif isinstance(content, str) and len(content.strip()) > 50:
+                        return True
+        return False
+    except Exception:
+        return False
 
 def main():
     # Get all JSON files in the 'articles' directory
@@ -37,6 +56,12 @@ def main():
                 continue
 
             file_path = f"articles/{file}"
+
+            # --- Validation: skip if file has no usable article data ---
+            if not is_valid_article_file(file_path):
+                print(f"Skipping {file} (no article text found in JSON)")
+                continue
+
             print(f"Uploading {file_path} to release tag '{release_tag}'")
 
             # Create release if it doesn't exist (idempotent)
@@ -59,7 +84,7 @@ def main():
                 [
                     "gh", "release", "upload", release_tag, file_path, "--clobber"
                 ],
-                check=False,  # <-- changed from True
+                check=False,
                 env={
                     "GITHUB_TOKEN": os.environ["GITHUB_TOKEN"],
                     "PATH": os.environ["PATH"]
@@ -69,7 +94,6 @@ def main():
             # If upload failed, check if the asset exists now – if so, it's fine
             if result.returncode != 0:
                 print(f"⚠️ Upload command exited with {result.returncode}")
-                # Check if the asset is actually present in the release
                 current_assets = get_release_assets(release_tag)
                 current_files = {os.path.basename(asset["name"]) for asset in current_assets}
                 if file in current_files:
