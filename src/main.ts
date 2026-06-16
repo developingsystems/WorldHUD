@@ -243,8 +243,8 @@ async function main() {
         }).catch(() => {});
       };
 
-      // Initial delay of 2 seconds to allow CDN/propagation
-      setTimeout(tryFetch, 2000);
+      // Immediately try, then poll every 10 seconds
+      tryFetch();
       (cached as any)._articlePollInterval = setInterval(tryFetch, 10000);
     }
   }
