@@ -98,49 +98,32 @@ interface Snapshot {
   goldstein: number;
   numMentions: number;
   tone: number;
+  entityId: string;
   articleMap: Map<string, Record<string, unknown>[]>;
 }
 
-type ArticleSources = Map<string, { fundus?: unknown; gdeltnews?: unknown; trafilatura?: unknown }>;
+type ArticleSources = Map<string, { gdeltnews?: unknown; trafilatura?: unknown }>;
 
 // =============================================================================
 // Helper: Choose best source based on priority and 50% gdeltnews advantage
 // -----------------------------------------------------------------------------
-// Priority order: Fundus > Trafilatura > gdeltnews.
-// But if gdeltnews text is at least 50% longer than the current best, switch to gdeltnews.
+// Priority: Trafilatura > gdeltnews.
+// But if gdeltnews text is at least 50% longer than trafilatura, use gdeltnews.
 // =============================================================================
 function selectBestSource(sources: {
-  fundus?: unknown;
-  trafilatura?: unknown;
   gdeltnews?: unknown;
-}): { source: 'fundus' | 'gdeltnews' | 'trafilatura'; text: string } | null {
-  const fundusText = sources.fundus ? getTextFromSource(sources.fundus) : '';
-  const trafilaturaText = sources.trafilatura ? getTextFromSource(sources.trafilatura) : '';
+  trafilatura?: unknown;
+}): { source: 'gdeltnews' | 'trafilatura'; text: string } | null {
   const gdeltnewsText = sources.gdeltnews ? getTextFromSource(sources.gdeltnews) : '';
+  const trafilaturaText = sources.trafilatura ? getTextFromSource(sources.trafilatura) : '';
 
-  // Priority order: Fundus, then Trafilatura, then gdeltnews
-  let bestSource: 'fundus' | 'gdeltnews' | 'trafilatura' | null = null;
-  let bestText = '';
-
-  if (fundusText) {
-    bestSource = 'fundus';
-    bestText = fundusText;
-  } else if (trafilaturaText) {
-    bestSource = 'trafilatura';
-    bestText = trafilaturaText;
+  // Prefer Trafilatura unless gdeltnews is ≥50% longer or Trafilatura is empty
+  if (trafilaturaText && (!gdeltnewsText || gdeltnewsText.length < 1.5 * trafilaturaText.length)) {
+    return { source: 'trafilatura', text: trafilaturaText };
   } else if (gdeltnewsText) {
-    bestSource = 'gdeltnews';
-    bestText = gdeltnewsText;
-  } else {
-    return null;
-  }
-
-  // If gdeltnews exists and is at least 50% longer than the best text, override
-  if (gdeltnewsText && bestText && gdeltnewsText.length >= 1.5 * bestText.length) {
     return { source: 'gdeltnews', text: gdeltnewsText };
   }
-
-  return bestSource ? { source: bestSource, text: bestText } : null;
+  return null;
 }
 
 // =============================================================================
@@ -236,7 +219,7 @@ async function renderGdelt(
   snapshot: Snapshot,
   articleMap: Map<string, Record<string, unknown>[]>,
   articleSources: ArticleSources,
-  currentSource: 'fundus' | 'gdeltnews' | 'trafilatura',
+  currentSource: 'gdeltnews' | 'trafilatura',
   signal?: AbortSignal,
 ): Promise<{ title: string; body: string; toneHtml: string }> {
   const { sourceUrl, headlines, globalEventId } = snapshot;
@@ -263,6 +246,7 @@ async function renderGdelt(
     const markdownText = traf.text || '';
     articleHtml = await renderMarkdown(markdownText, signal);
   } else if (currentSource === 'trafilatura' && typeof sources.trafilatura === 'string') {
+    // Plain string fallback (if pipeline saved only text)
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
     articleHtml = await renderMarkdown(sources.trafilatura, signal);
@@ -270,11 +254,6 @@ async function renderGdelt(
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
     rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
     const plainText = getTextFromSource(sources.gdeltnews);
-    articleHtml = `<p>${esc(plainText)}</p>`;
-  } else if (currentSource === 'fundus' && sources.fundus) {
-    const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
-    rawTitle = `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="infobox-title-link">${esc(headline)}</a>`;
-    const plainText = getTextFromSource(sources.fundus);
     articleHtml = `<p>${esc(plainText)}</p>`;
   } else {
     const headline = (headlines && headlines[0]) ? headlines[0] : 'GDELT Event';
@@ -334,7 +313,7 @@ async function renderGdelt(
 }
 
 // =============================================================================
-// InfoBox class (async render updates with cancellation, scroll preservation)
+// InfoBox class (no Fundus, auto‑select once, ignores undefined on chunk reload)
 // =============================================================================
 export class InfoBox {
   private container: HTMLDivElement;
@@ -342,12 +321,13 @@ export class InfoBox {
   private articleMap: Map<string, Record<string, unknown>[]>;
   private articleSources: ArticleSources;
   private dropdown: HTMLSelectElement;
-  private currentSource: 'fundus' | 'gdeltnews' | 'trafilatura' = 'gdeltnews';
+  private currentSource: 'gdeltnews' | 'trafilatura' = 'trafilatura';
   private currentTitle: string = '';
   private currentScrollable: string = '';
   private currentToneHtml: string = '';
   private currentSnapshot: Snapshot | null = null;
   private currentController: AbortController | null = null;
+  private hasAutoSelected: boolean = false;
 
   constructor(
     viewer: Viewer,
@@ -406,9 +386,10 @@ export class InfoBox {
         .article-tone {
           font-weight: bold;
           font-size: 12px;
-          margin: 8px 0 4px 0;
-          padding-left: 4px;
+          margin: 8px 0 12px 0;
+          padding-bottom: 8px;
           border-left: 3px solid #66aaff;
+          border-bottom: 1px solid #444;
         }
       `;
       document.head.appendChild(styleEl);
@@ -441,20 +422,28 @@ export class InfoBox {
     this.dropdown.className = 'infobox-source-select';
     this.dropdown.style.display = 'none';
     this.dropdown.addEventListener('change', () => {
-      this.currentSource = this.dropdown.value as 'fundus' | 'gdeltnews' | 'trafilatura';
+      this.currentSource = this.dropdown.value as 'gdeltnews' | 'trafilatura';
       this.refreshArticle();
     });
 
-    // Listen to Cesium's selection changes – no custom click listener
+    // Listen to selection changes – only update on new entity, never close here
     this.removeListener = viewer.selectedEntityChanged.addEventListener(
       (entity: Entity | undefined) => {
         if (entity) {
           this.onSelectionChanged(entity);
-        } else {
-          this.hide();
         }
+        // Ignore undefined – chunk reloads cause it but we don't close.
       }
     );
+
+    // Close InfoBox when clicking on terrain (not on entities)
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    handler.setInputAction((click: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+      const picked = viewer.scene.pick(click.position);
+      if (!picked || !picked.id || !(picked.id instanceof Cesium.Entity)) {
+        this.hide();
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
   }
 
   private async onSelectionChanged(entity: Entity): Promise<void> {
@@ -465,7 +454,7 @@ export class InfoBox {
     this.currentController = new AbortController();
     const signal = this.currentController.signal;
 
-    // Clear previous content and ensure container is visible (no loading message)
+    // Clear previous content and ensure container is visible
     this.container.innerHTML = '';
     this.container.style.display = 'flex';
 
@@ -480,9 +469,13 @@ export class InfoBox {
       goldstein: (p.goldstein as number) || 0,
       numMentions: (p.numMentions as number) || 0,
       tone: (p.tone as number) || 0,
+      entityId: entity.id,
       articleMap: new Map(this.articleMap),
     };
     this.currentSnapshot = snapshot;
+
+    // Reset auto‑selection flag for this new entity
+    this.hasAutoSelected = false;
 
     // Select best source (synchronous, fast)
     const sources = this.articleSources.get(snapshot.sourceUrl) || {};
@@ -490,6 +483,8 @@ export class InfoBox {
     if (best) {
       this.currentSource = best.source;
     }
+    // Mark that we've attempted auto‑selection (even if no source yet)
+    this.hasAutoSelected = true;
 
     try {
       const { title, body, toneHtml } = await renderGdelt(
@@ -538,7 +533,6 @@ export class InfoBox {
       this.currentScrollable = body;
       this.currentToneHtml = toneHtml;
       this.show();
-      // Restore scroll position after DOM update
       if (savedScrollTop > 0) {
         requestAnimationFrame(() => {
           const newScrollable = this.container.querySelector('.infobox-scrollable');
@@ -556,12 +550,10 @@ export class InfoBox {
   private show(): void {
     this.container.innerHTML = '';
 
-    // Build dropdown (but don't append yet)
     const url = this.currentSnapshot?.sourceUrl || '';
     const sources = this.articleSources.get(url) || {};
     this.dropdown.innerHTML = '';
-    const options: { value: 'fundus' | 'gdeltnews' | 'trafilatura'; label: string }[] = [
-      { value: 'fundus', label: 'Fundus' },
+    const options: { value: 'gdeltnews' | 'trafilatura'; label: string }[] = [
       { value: 'gdeltnews', label: 'gdeltnews' },
       { value: 'trafilatura', label: 'Trafilatura' },
     ];
@@ -575,32 +567,26 @@ export class InfoBox {
     });
     this.dropdown.style.display = 'block';
 
-    // Create title element
     const titleEl = document.createElement('div');
     titleEl.style.cssText =
       'font-weight: bold; font-size: 18px; margin-bottom: 12px; border-bottom: 1px solid #555; padding-bottom: 6px;';
     titleEl.innerHTML = this.currentTitle;
 
-    // Create tone element (below title)
     const toneEl = document.createElement('div');
     toneEl.innerHTML = this.currentToneHtml;
 
-    // Create scrollable content container
     const scrollableDiv = document.createElement('div');
     scrollableDiv.className = 'infobox-scrollable';
     scrollableDiv.innerHTML = this.currentScrollable;
 
-    // Append everything
     this.container.appendChild(titleEl);
     this.container.appendChild(toneEl);
     this.container.appendChild(scrollableDiv);
 
-    // Insert dropdown into its placeholder
     const placeholder = scrollableDiv.querySelector('#infobox-dropdown-placeholder');
     if (placeholder) {
       placeholder.replaceWith(this.dropdown);
     } else {
-      // Fallback: if placeholder not found, just append at the end
       this.container.appendChild(this.dropdown);
     }
 
@@ -641,12 +627,44 @@ export class InfoBox {
       const options = this.dropdown.options;
       for (let i = 0; i < options.length; i++) {
         const opt = options[i];
-        const source = opt.value as 'fundus' | 'gdeltnews' | 'trafilatura';
+        const source = opt.value as 'gdeltnews' | 'trafilatura';
         opt.disabled = !sources[source];
       }
 
-      // Do NOT automatically re‑select best source; let the user choose manually.
-      // Do NOT call renderGdelt or show() – preserve the current view.
+      // Auto‑select the best source if we haven't already auto‑selected for this entity
+      if (!this.hasAutoSelected) {
+        const best = selectBestSource(sources);
+        if (best && best.source !== this.currentSource) {
+          this.currentSource = best.source;
+          // Cancel any ongoing render
+          if (this.currentController) {
+            this.currentController.abort();
+          }
+          this.currentController = new AbortController();
+          const signal = this.currentController.signal;
+          try {
+            const { title, body, toneHtml } = await renderGdelt(
+              this.currentSnapshot,
+              articleMap,
+              this.articleSources,
+              this.currentSource,
+              signal,
+            );
+            if (signal.aborted) return;
+            this.currentTitle = title;
+            this.currentScrollable = body;
+            this.currentToneHtml = toneHtml;
+            this.show();
+          } catch (err) {
+            if ((err as Error).name === 'AbortError') return;
+            console.error('Auto‑update render error:', err);
+          } finally {
+            if (this.currentController === this.currentController) this.currentController = null;
+          }
+        }
+        // Mark that auto‑selection has been attempted (even if no source yet)
+        this.hasAutoSelected = true;
+      }
     }
   }
 
