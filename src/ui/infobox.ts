@@ -221,7 +221,7 @@ async function renderGdelt(
   articleSources: ArticleSources,
   currentSource: 'gdeltnews' | 'trafilatura',
   signal?: AbortSignal,
-): Promise<{ title: string; body: string; toneHtml: string }> {
+): Promise<{ title: string; body: string; toneHtml: string; hasArticle: boolean }> {
   const { sourceUrl, headlines, globalEventId } = snapshot;
   const esc = (s: unknown): string => {
     const str = s == null ? '' : String(s);
@@ -298,6 +298,11 @@ async function renderGdelt(
   const toneColor = getToneColor(articleTone);
   const toneDisplay = formatTone(articleTone);
 
+  const hasArticle = !(
+    articleHtml === '<p style="color: gray;">Article text not yet available for this source.</p>' ||
+    articleHtml === ''
+  );
+
   const title = sanitize(rawTitle);
   const toneHtml = `<div class="article-tone" style="color: ${toneColor};">Article tone: ${toneDisplay}</div>`;
   const scrollableContent = `
@@ -309,7 +314,7 @@ async function renderGdelt(
       ${articleHtml}
     </div>
   `;
-  return { title, body: scrollableContent, toneHtml };
+  return { title, body: scrollableContent, toneHtml, hasArticle };
 }
 
 // =============================================================================
@@ -485,7 +490,7 @@ export class InfoBox {
     }
 
     try {
-      const { title, body, toneHtml } = await renderGdelt(
+      const { title, body, toneHtml, hasArticle } = await renderGdelt(
         snapshot,
         this.articleMap,
         this.articleSources,
@@ -496,16 +501,8 @@ export class InfoBox {
       this.currentTitle = title;
       this.currentScrollable = body;
       this.currentToneHtml = toneHtml;
-      // This will display the article (or placeholder if none available)
+      this.articleDisplayed = hasArticle;
       this.show();
-      // After show(), we check if we actually displayed an article.
-      // If article text is present, mark as displayed.
-      // If not (placeholder), keep articleDisplayed = false so future updates can auto‑display.
-      const articleContainer = this.container.querySelector('.infobox-article');
-      const hasText = articleContainer && articleContainer.textContent && articleContainer.textContent.trim() !== 'Article text not yet available for this source.';
-      if (hasText) {
-        this.articleDisplayed = true;
-      }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       console.error('Render error:', err);
@@ -528,7 +525,7 @@ export class InfoBox {
     const savedScrollTop = scrollable ? scrollable.scrollTop : 0;
 
     try {
-      const { title, body, toneHtml } = await renderGdelt(
+      const { title, body, toneHtml, hasArticle } = await renderGdelt(
         this.currentSnapshot,
         this.articleMap,
         this.articleSources,
@@ -539,6 +536,7 @@ export class InfoBox {
       this.currentTitle = title;
       this.currentScrollable = body;
       this.currentToneHtml = toneHtml;
+      this.articleDisplayed = hasArticle;
       this.show();
       if (savedScrollTop > 0) {
         requestAnimationFrame(() => {
@@ -650,7 +648,7 @@ export class InfoBox {
           this.currentController = new AbortController();
           const signal = this.currentController.signal;
           try {
-            const { title, body, toneHtml } = await renderGdelt(
+            const { title, body, toneHtml, hasArticle } = await renderGdelt(
               this.currentSnapshot,
               articleMap,
               this.articleSources,
@@ -661,13 +659,8 @@ export class InfoBox {
             this.currentTitle = title;
             this.currentScrollable = body;
             this.currentToneHtml = toneHtml;
+            this.articleDisplayed = hasArticle;
             this.show();
-            // After show(), check if we now have an article
-            const articleContainer = this.container.querySelector('.infobox-article');
-            const hasText = articleContainer && articleContainer.textContent && articleContainer.textContent.trim() !== 'Article text not yet available for this source.';
-            if (hasText) {
-              this.articleDisplayed = true;
-            }
           } catch (err) {
             if ((err as Error).name === 'AbortError') return;
             console.error('Auto‑update render error:', err);
