@@ -6,6 +6,9 @@ import { InfoBox } from './ui/infobox.js';
 import { fetchChunk } from './data/fetch.js';
 import { FetchQueue } from './data/queue.js';
 
+// ---------- Type for article source values ----------
+type ArticleSourceValue = string | Record<string, unknown>;
+
 // ---------- Utility: normalise URL for matching ----------
 function normalizeUrl(url: string): string {
   let n = url.replace(/\/+$/, '');
@@ -44,7 +47,7 @@ async function fetchAndCacheChunk(
 ): Promise<{
   geojson: import('geojson').FeatureCollection;
   articleMap: Map<string, Record<string, unknown>[]>;
-  articleSources: Map<string, { gdeltnews?: string; trafilatura?: string }>;
+  articleSources: Map<string, { gdeltnews?: ArticleSourceValue; trafilatura?: ArticleSourceValue }>;
 }> {
   const { geojson } = await fetchChunk(ts, signal);
 
@@ -58,7 +61,7 @@ async function fetchAndCacheChunk(
     }
   }
 
-  const articleSources = new Map<string, { gdeltnews?: string; trafilatura?: string }>();
+  const articleSources = new Map<string, { gdeltnews?: ArticleSourceValue; trafilatura?: ArticleSourceValue }>();
 
   return { geojson, articleMap, articleSources };
 }
@@ -86,7 +89,7 @@ async function main() {
   const chunkCache = new Map<string, {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
-    articleSources: Map<string, { gdeltnews?: string; trafilatura?: string }>;
+    articleSources: Map<string, { gdeltnews?: ArticleSourceValue; trafilatura?: ArticleSourceValue }>;
   }>();
 
   // ---------- PENDING FETCH TRACKING ----------
@@ -184,7 +187,7 @@ async function main() {
   function updateDisplay(ts: string, cached: {
     geojson: import('geojson').FeatureCollection;
     articleMap: Map<string, Record<string, unknown>[]>;
-    articleSources: Map<string, { gdeltnews?: string; trafilatura?: string }>;
+    articleSources: Map<string, { gdeltnews?: ArticleSourceValue; trafilatura?: ArticleSourceValue }>;
   }) {
     const newDs = new GeoJsonDataSource('chunk');
     newDs.load(cached.geojson, {
@@ -239,7 +242,7 @@ async function main() {
           fetch(urls.gdeltnews).then(r => r.ok ? r.json() : null),
           fetch(urls.trafilatura).then(r => r.ok ? r.json() : null),
         ]).then(([gdeltnewsRaw, trafilaturaRaw]) => {
-          // Normalise the keys of the fetched data
+          // Normalise keys of fetched data
           const gdeltnewsData = normalizeKeys(gdeltnewsRaw);
           const trafilaturaData = normalizeKeys(trafilaturaRaw);
 
@@ -259,7 +262,7 @@ async function main() {
           console.log(`[poll] Current URL (normalised): ${normalizedCurrent}`);
 
           for (const u of cached.articleMap.keys()) {
-            // u is already normalised (from fetchAndCacheChunk)
+            // u is already normalised
             const key = u;
             if (gdeltnewsData?.[key]) {
               cached.articleSources.set(u, { ...cached.articleSources.get(u), gdeltnews: gdeltnewsData[key] });
