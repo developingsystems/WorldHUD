@@ -44,9 +44,17 @@ def create_release_if_missing():
     if resp.status_code == 201:
         print(f"Created release {RELEASE_TAG}")
         return True
-    elif resp.status_code == 422 and "already exists" in resp.text:
-        print(f"Release {RELEASE_TAG} already exists.")
-        return True
+    elif resp.status_code == 422:
+        # Check if the error is because the release already exists
+        try:
+            errors = resp.json().get("errors", [])
+            if errors and errors[0].get("code") == "already_exists":
+                print(f"Release {RELEASE_TAG} already exists.")
+                return True
+        except Exception:
+            pass
+        print(f"Failed to create release: {resp.status_code} {resp.text}")
+        return False
     else:
         print(f"Failed to create release: {resp.status_code} {resp.text}")
         return False
