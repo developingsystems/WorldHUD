@@ -9,6 +9,9 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 from gdeltnews import download, reconstruct
 
+# Set this to 0 to disable filtering, or adjust after reviewing stats
+MIN_ARTICLE_LENGTH = 0  # e.g., 100 to filter out short snippets
+
 def article_json_exists(timestamp: str) -> bool:
     """Return True if gdeltnews_{timestamp}.json already exists in the release."""
     url = f"https://github.com/developingsystems/WorldHUD/releases/download/gdelt-articles/gdeltnews_{timestamp}.json"
@@ -32,7 +35,6 @@ def main():
     else:
         # Cron run – most recent complete chunk, with 3‑minute grace period
         chunk_end = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-        # 3‑minute grace period – if the chunk's files aren't ready yet, fall back to the previous one
         if (now - chunk_end).seconds < 180:
             chunk_end = chunk_end - timedelta(minutes=15)
         chunk_start = chunk_end - timedelta(minutes=15)
@@ -67,22 +69,41 @@ def main():
                     fieldnames=["Text", "Date", "URL", "Source"]
                 )
                 for row in reader:
-                    url = row.get("URL", "")
-                    text = row.get("Text", "")
+                    url = row.get("URL", "").strip()
+                    text = row.get("Text", "").strip()
                     if not url or not text:
                         continue
                     # Keep the longest version of each article
                     if url not in articles or len(text) > len(articles[url]):
                         articles[url] = text
 
+        # --- DIAGNOSTICS: show article length distribution ---
+        if articles:
+            lengths = [len(t) for t in articles.values()]
+            lengths.sort()
+            total = len(lengths)
+            min_len = min(lengths)
+            max_len = max(lengths)
+            median = lengths[total // 2]
+            print(f"📊 Article length stats: total={total}, min={min_len}, max={max_len}, median={median}")
+            # Show first 10 lengths as sample
+            print(f"📊 Sample lengths: {lengths[:10]}")
+
+        # --- OPTIONAL FILTER: remove articles shorter than threshold ---
+        if MIN_ARTICLE_LENGTH > 0:
+            filtered = {url: text for url, text in articles.items() if len(text) >= MIN_ARTICLE_LENGTH}
+            removed = len(articles) - len(filtered)
+            if removed > 0:
+                print(f"✂️ Filtered out {removed} articles shorter than {MIN_ARTICLE_LENGTH} characters.")
+            articles = filtered
+
         os.makedirs("articles", exist_ok=True)
         output_path = f"articles/gdeltnews_{timestamp}.json"
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(articles, f, ensure_ascii=False, indent=2)
 
-        print(f"Saved {len(articles)} articles → {output_path}")
+        print(f"✅ Saved {len(articles)} articles → {output_path}")
 
-        # Pass the timestamp to the next workflow step
         with open(os.environ["GITHUB_OUTPUT"], "a") as f:
             f.write(f"timestamp={timestamp}\n")
 
