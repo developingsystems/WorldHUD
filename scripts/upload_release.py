@@ -60,45 +60,34 @@ def create_release_if_missing():
         return False
 
 def is_valid_article_file(file_path):
-    """DEBUG: print structure, then return False."""
+    """Return True if the JSON contains at least one non-empty article entry."""
     try:
-        filename = os.path.basename(file_path)
-        print(f"🔎 DEBUG: File {filename}")
-
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        print(f"  Top-level type: {type(data).__name__}")
-
         if isinstance(data, dict):
-            keys = list(data.keys())
-            print(f"  Number of keys: {len(keys)}")
-            if keys:
-                first_key = keys[0]
-                first_val = data[first_key]
-                print(f"  First key: {first_key[:80]}...")
-                print(f"  Type of first value: {type(first_val).__name__}")
-                if isinstance(first_val, str):
-                    print(f"  First value (first 100 chars): {first_val[:100]}...")
-                elif isinstance(first_val, dict):
-                    print(f"  Keys in first value: {list(first_val.keys())[:5]}")
-                elif isinstance(first_val, list):
-                    print(f"  Length of first value list: {len(first_val)}")
-                    if first_val:
-                        print(f"  Type of first item in list: {type(first_val[0]).__name__}")
+            for url, content in data.items():
+                # gdeltnews format: values are strings
+                if isinstance(content, str) and len(content.strip()) > 50:
+                    return True
+                # trafilatura format: values are dicts with 'text' key
+                if isinstance(content, dict):
+                    # Check for common text keys
+                    for key in ['text', 'content', 'body', 'article']:
+                        if content.get(key) and isinstance(content[key], str) and len(content[key].strip()) > 50:
+                            return True
+                    # Or any string value with length > 50
+                    for v in content.values():
+                        if isinstance(v, str) and len(v.strip()) > 50:
+                            return True
         elif isinstance(data, list):
-            print(f"  Length of list: {len(data)}")
-            if data:
-                print(f"  Type of first item: {type(data[0]).__name__}")
-                if isinstance(data[0], dict):
-                    print(f"  Keys in first item: {list(data[0].keys())[:5]}")
-        else:
-            print(f"  Unexpected top-level type: {type(data).__name__}")
-
-        # Return False for now to avoid uploading until we know the structure
+            for item in data:
+                if isinstance(item, dict):
+                    for v in item.values():
+                        if isinstance(v, str) and len(v.strip()) > 50:
+                            return True
         return False
-    except Exception as e:
-        print(f"  Validation error: {e}")
+    except Exception:
         return False
 
 def upload_asset(file_path, asset_name):
@@ -121,7 +110,7 @@ def upload_asset(file_path, asset_name):
     if resp.status_code == 201:
         print(f"  ✅ Uploaded {asset_name}")
         return True
-    elif resp.status_code == 422 and "already exists" in resp.text:
+    elif resp.status_code == 422 and "already_exists" in resp.text:
         print(f"  ⏭️  Asset {asset_name} already exists (upload skipped)")
         return True  # treat as success
     else:
@@ -138,7 +127,6 @@ def main():
     print(f"Found {len(existing_assets)} existing assets in release.")
 
     # 3. Gather files
-    # Note: ARTICLES_DIR is a Path, but we want to work with full path strings
     files = [str(f) for f in ARTICLES_DIR.iterdir() if f.suffix == ".json" and f.name.startswith(ALLOWED_PREFIXES)]
     if not files:
         print("No article files to upload")
