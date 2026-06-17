@@ -71,6 +71,9 @@ async function main() {
     articleSources: Map<string, { gdeltnews?: string; trafilatura?: string }>;
   }>();
 
+  // ---------- PENDING FETCH TRACKING (FIX INFINITE LOOP) ----------
+  const pendingChunks = new Set<string>();
+
   // InfoBox must be created BEFORE the initial chunk load so that updateDisplay
   // can start polling for article JSON immediately.
   const infoBox = new InfoBox(viewer, new Map(), new Map());
@@ -111,7 +114,6 @@ async function main() {
       console.log(`[dispatch] Reconstruction requested for ${chunkTs}`);
     } catch (err) {
       console.warn('[dispatch] Failed to request reconstruction:', err);
-      // Remove from set so we can retry later
       dispatched.gdeltnews.delete(chunkTs);
     }
   }
@@ -271,7 +273,9 @@ async function main() {
         const cd = new Date(base);
         cd.setUTCMinutes(cd.getUTCMinutes() + off * 15);
         const ts = cd.toISOString().replace(/[-:T]/g, '').slice(0,14);
-        if (!chunkCache.has(ts) && ts <= latestPublishedTs) timestamps.push(ts);
+        if (!chunkCache.has(ts) && !pendingChunks.has(ts) && ts <= latestPublishedTs) {
+          timestamps.push(ts);
+        }
       }
     }
 
@@ -280,6 +284,11 @@ async function main() {
       function next() {
         if (idx >= timestamps.length) return;
         const t = timestamps[idx++];
+        if (pendingChunks.has(t)) {
+          next(); // skip if already pending
+          return;
+        }
+        pendingChunks.add(t);
         fetchQueue.enqueue(t, 'low', async (signal) => {
           let aborted = false;
           try {
@@ -289,6 +298,8 @@ async function main() {
             if ((err as any).name === 'AbortError') {
               aborted = true;
             }
+          } finally {
+            pendingChunks.delete(t);
           }
           if (!aborted) next();
         });
@@ -296,9 +307,16 @@ async function main() {
       next();
     } else {
       timestamps.forEach(ts => {
+        if (pendingChunks.has(ts)) return;
+        pendingChunks.add(ts);
         fetchQueue.enqueue(ts, 'low', async (signal) => {
-          try { chunkCache.set(ts, await fetchAndCacheChunk(ts, signal)); }
-          catch (err) { if ((err as any).name === 'AbortError') return; }
+          try {
+            chunkCache.set(ts, await fetchAndCacheChunk(ts, signal));
+          } catch (err) {
+            if ((err as any).name === 'AbortError') return;
+          } finally {
+            pendingChunks.delete(ts);
+          }
         });
       });
     }
@@ -317,11 +335,17 @@ async function main() {
     }
 
     if (chunkCache.has(ts)) {
+      // If it was in pending, remove it (it's now cached)
+      pendingChunks.delete(ts);
       updateDisplay(ts, chunkCache.get(ts)!);
       lastDisplayedTs = ts;
       schedulePreFetch();
       return;
     }
+
+    // Prevent duplicate fetches for the same timestamp
+    if (pendingChunks.has(ts)) return;
+    pendingChunks.add(ts);
 
     fetchQueue.enqueue(ts, 'high', async (signal) => {
       try {
@@ -333,6 +357,8 @@ async function main() {
       } catch (err) {
         if ((err as any).name === 'AbortError') return;
         console.error(`Failed to load chunk ${ts}:`, err);
+      } finally {
+        pendingChunks.delete(ts);
       }
     });
   });
@@ -351,13 +377,21 @@ async function main() {
       if (newTs !== latestPublishedTs) {
         latestPublishedTs = newTs;
         fetchQueue.setLatestChunk(newTs);
-        if (!chunkCache.has(newTs)) {
+        if (!chunkCache.has(newTs) && !pendingChunks.has(newTs)) {
+          pendingChunks.add(newTs);
           fetchQueue.enqueue(newTs, 'high', async (signal) => {
-            const data = await fetchAndCacheChunk(newTs, signal);
-            chunkCache.set(newTs, data);
-            dispatchReconstruction(newTs);
-            const urls = [...data.articleMap.keys()];
-            dispatchTrafilaturaExtraction(newTs, urls);
+            try {
+              const data = await fetchAndCacheChunk(newTs, signal);
+              chunkCache.set(newTs, data);
+              dispatchReconstruction(newTs);
+              const urls = [...data.articleMap.keys()];
+              dispatchTrafilaturaExtraction(newTs, urls);
+            } catch (err) {
+              if ((err as any).name === 'AbortError') return;
+              console.error(`Failed to load new chunk ${newTs}:`, err);
+            } finally {
+              pendingChunks.delete(newTs);
+            }
           });
         }
       }
