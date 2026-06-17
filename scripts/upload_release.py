@@ -7,22 +7,44 @@ import requests
 import sys
 import json   # <-- new import
 
-def is_valid_article_file(filepath):
-    """Return True if the JSON contains at least one article with text."""
+def is_valid_article_file(file_path):
+    """DEBUG: print structure, then return False."""
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if not isinstance(data, dict):
-            return False
-        for url, sources in data.items():
-            if isinstance(sources, dict):
-                for content in sources.values():
-                    if isinstance(content, dict) and content.get('text'):
-                        return True
-                    elif isinstance(content, str) and len(content.strip()) > 50:
-                        return True
+        
+        print(f"🔎 DEBUG: File {file_path.name}")
+        print(f"  Top-level type: {type(data).__name__}")
+        
+        if isinstance(data, dict):
+            keys = list(data.keys())
+            print(f"  Number of keys: {len(keys)}")
+            if keys:
+                first_key = keys[0]
+                first_val = data[first_key]
+                print(f"  First key: {first_key[:80]}...")
+                print(f"  Type of first value: {type(first_val).__name__}")
+                if isinstance(first_val, str):
+                    print(f"  First value (first 100 chars): {first_val[:100]}...")
+                elif isinstance(first_val, dict):
+                    print(f"  Keys in first value: {list(first_val.keys())[:5]}")
+                elif isinstance(first_val, list):
+                    print(f"  Length of first value list: {len(first_val)}")
+                    if first_val:
+                        print(f"  Type of first item in list: {type(first_val[0]).__name__}")
+        elif isinstance(data, list):
+            print(f"  Length of list: {len(data)}")
+            if data:
+                print(f"  Type of first item: {type(data[0]).__name__}")
+                if isinstance(data[0], dict):
+                    print(f"  Keys in first item: {list(data[0].keys())[:5]}")
+        else:
+            print(f"  Unexpected top-level type: {type(data).__name__}")
+        
+        # For now, return False to avoid uploading until we know the structure
         return False
-    except Exception:
+    except Exception as e:
+        print(f"  Validation error: {e}")
         return False
 
 def main():
