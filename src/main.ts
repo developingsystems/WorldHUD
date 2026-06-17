@@ -28,6 +28,12 @@ function normalizeKeys<T>(obj: Record<string, T> | null | undefined): Record<str
   return result;
 }
 
+// ---------- Type guard for ArticleSourceValue ----------
+function isArticleSourceValue(value: unknown): value is ArticleSourceValue {
+  return value !== null && value !== undefined &&
+    (typeof value === 'string' || (typeof value === 'object' && value !== null));
+}
+
 // ---------- Utility: chunk timestamp from a JulianDate ----------
 function chunkTimestamp(clockTime: JulianDate): string {
   const d = JulianDate.toDate(clockTime);
@@ -264,16 +270,20 @@ async function main() {
           for (const u of cached.articleMap.keys()) {
             // u is already normalised
             const key = u;
-            if (gdeltnewsData?.[key]) {
-              cached.articleSources.set(u, { ...cached.articleSources.get(u), gdeltnews: gdeltnewsData[key] });
+            // ---- gdeltnews ----
+            const gdeltnewsVal = gdeltnewsData?.[key];
+            if (isArticleSourceValue(gdeltnewsVal)) {
+              cached.articleSources.set(u, { ...cached.articleSources.get(u), gdeltnews: gdeltnewsVal });
               updated = true;
               if (normalizedCurrent && key === normalizedCurrent) {
                 currentUrlUpdated = true;
                 console.log(`[poll] ✅ Found gdeltnews article for current URL!`);
               }
             }
-            if (trafilaturaData?.[key]) {
-              cached.articleSources.set(u, { ...cached.articleSources.get(u), trafilatura: trafilaturaData[key] });
+            // ---- trafilatura ----
+            const trafilaturaVal = trafilaturaData?.[key];
+            if (isArticleSourceValue(trafilaturaVal)) {
+              cached.articleSources.set(u, { ...cached.articleSources.get(u), trafilatura: trafilaturaVal });
               updated = true;
               if (normalizedCurrent && key === normalizedCurrent) {
                 currentUrlUpdated = true;
