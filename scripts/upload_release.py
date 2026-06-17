@@ -1,21 +1,67 @@
 #!/usr/bin/env python3
-# Upload all article JSON files (both Trafilatura and gdeltnews) to a GitHub Release.
+# Upload all article JSON files (Trafilatura and gdeltnews) to a GitHub Release.
 
 import os
-import subprocess
+import json
 import requests
 import sys
-import json   # <-- new import
+from pathlib import Path
+
+REPO = os.environ.get("GITHUB_REPOSITORY", "developingsystems/WorldHUD")
+TOKEN = os.environ.get("GITHUB_TOKEN")
+if not TOKEN:
+    print("Error: GITHUB_TOKEN not set")
+    sys.exit(1)
+
+RELEASE_TAG = "gdelt-articles"
+ARTICLES_DIR = Path("articles")
+ALLOWED_PREFIXES = ("trafilatura_", "gdeltnews_")
+
+def get_release_assets():
+    """Return a dict mapping asset name -> asset ID."""
+    url = f"https://api.github.com/repos/{REPO}/releases/tags/{RELEASE_TAG}"
+    resp = requests.get(url, headers={"Authorization": f"token {TOKEN}"})
+    if resp.status_code == 200:
+        data = resp.json()
+        return {asset["name"]: asset["id"] for asset in data.get("assets", [])}
+    elif resp.status_code == 404:
+        return {}  # Release doesn't exist yet
+    else:
+        print(f"Failed to get release: {resp.status_code}")
+        return {}
+
+def create_release_if_missing():
+    """Create the release if it doesn't exist."""
+    url = f"https://api.github.com/repos/{REPO}/releases"
+    payload = {
+        "tag_name": RELEASE_TAG,
+        "name": "GDELT Reconstructed Articles",
+        "body": "Automatically updated by gdeltnews and Trafilatura pipelines.",
+        "prerelease": True,
+        "draft": False,
+    }
+    resp = requests.post(url, json=payload, headers={"Authorization": f"token {TOKEN}"})
+    if resp.status_code == 201:
+        print(f"Created release {RELEASE_TAG}")
+        return True
+    elif resp.status_code == 422 and "already exists" in resp.text:
+        print(f"Release {RELEASE_TAG} already exists.")
+        return True
+    else:
+        print(f"Failed to create release: {resp.status_code} {resp.text}")
+        return False
 
 def is_valid_article_file(file_path):
     """DEBUG: print structure, then return False."""
     try:
+        filename = os.path.basename(file_path)
+        print(f"🔎 DEBUG: File {filename}")
+
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        
-        print(f"🔎 DEBUG: File {file_path.name}")
+
         print(f"  Top-level type: {type(data).__name__}")
-        
+
         if isinstance(data, dict):
             keys = list(data.keys())
             print(f"  Number of keys: {len(keys)}")
@@ -40,97 +86,85 @@ def is_valid_article_file(file_path):
                     print(f"  Keys in first item: {list(data[0].keys())[:5]}")
         else:
             print(f"  Unexpected top-level type: {type(data).__name__}")
-        
-        # For now, return False to avoid uploading until we know the structure
+
+        # Return False for now to avoid uploading until we know the structure
         return False
     except Exception as e:
         print(f"  Validation error: {e}")
         return False
 
+def upload_asset(file_path, asset_name):
+    """Upload a file as a release asset."""
+    url = f"https://api.github.com/repos/{REPO}/releases/tags/{RELEASE_TAG}"
+    resp = requests.get(url, headers={"Authorization": f"token {TOKEN}"})
+    if resp.status_code != 200:
+        print(f"Failed to get release for upload: {resp.status_code}")
+        return False
+    release = resp.json()
+    upload_url = release["upload_url"].split("{")[0]
+
+    with open(file_path, "rb") as f:
+        files = {"file": (asset_name, f, "application/json")}
+        resp = requests.post(
+            upload_url + f"?name={asset_name}",
+            headers={"Authorization": f"token {TOKEN}"},
+            files=files,
+        )
+    if resp.status_code == 201:
+        print(f"  ✅ Uploaded {asset_name}")
+        return True
+    elif resp.status_code == 422 and "already exists" in resp.text:
+        print(f"  ⏭️  Asset {asset_name} already exists (upload skipped)")
+        return True  # treat as success
+    else:
+        print(f"  ❌ Upload failed: {resp.status_code} {resp.text}")
+        return False
+
 def main():
-    # Get all JSON files in the 'articles' directory
-    allowed_prefixes = ("trafilatura_", "gdeltnews_")
-    files = [f for f in os.listdir("articles") if f.endswith(".json") and f.startswith(allowed_prefixes)]
+    # 1. Ensure release exists
+    if not create_release_if_missing():
+        sys.exit(1)
+
+    # 2. Get existing assets
+    existing_assets = get_release_assets()
+    print(f"Found {len(existing_assets)} existing assets in release.")
+
+    # 3. Gather files
+    # Note: ARTICLES_DIR is a Path, but we want to work with full path strings
+    files = [str(f) for f in ARTICLES_DIR.iterdir() if f.suffix == ".json" and f.name.startswith(ALLOWED_PREFIXES)]
     if not files:
         print("No article files to upload")
-        return
+        return  # success
 
-    # For each file, extract the base timestamp (e.g., "20260611164500")
-    file_map = {}
-    for f in files:
-        parts = f.split("_")
-        if len(parts) >= 2:
-            timestamp = parts[1].replace(".json", "")
-            file_map[timestamp] = file_map.get(timestamp, []) + [f]
-        else:
-            print(f"Skipping file {f} (unexpected naming)")
+    uploaded_count = 0
+    skipped_existing = 0
+    skipped_invalid = 0
+
+    for file_path in files:
+        asset_name = os.path.basename(file_path)
+
+        # Skip if already exists
+        if asset_name in existing_assets:
+            print(f"⏭️  Skipping {asset_name} (already exists in release)")
+            skipped_existing += 1
             continue
 
-    # For each timestamp, upload all corresponding files
-    for timestamp, file_list in file_map.items():
-        release_tag = "gdelt-articles"
-        existing_urls = get_release_assets(release_tag)
-        existing_files = {os.path.basename(asset["name"]) for asset in existing_urls}
+        # Validate content
+        print(f"🔍 Validating {asset_name}...")
+        if not is_valid_article_file(file_path):
+            print(f"  ⏭️  Skipping {asset_name} (file is empty or has no usable text)")
+            skipped_invalid += 1
+            continue
 
-        for file in file_list:
-            if file in existing_files:
-                print(f"Skipping {file} (already in release)")
-                continue
+        # Upload
+        print(f"⬆️  Uploading {asset_name}...")
+        if upload_asset(file_path, asset_name):
+            uploaded_count += 1
+        else:
+            sys.exit(1)
 
-            file_path = f"articles/{file}"
-
-            # --- Validation: skip if file has no usable article data ---
-            if not is_valid_article_file(file_path):
-                print(f"Skipping {file} (no article text found in JSON)")
-                continue
-
-            print(f"Uploading {file_path} to release tag '{release_tag}'")
-
-            # Create release if it doesn't exist (idempotent)
-            subprocess.run(
-                [
-                    "gh", "release", "create", release_tag,
-                    "--title", "GDELT Reconstructed Articles",
-                    "--notes", "Automatically updated by gdeltnews and Trafilatura pipelines.",
-                    "--prerelease", "--latest=false"
-                ],
-                check=False,
-                env={
-                    "GITHUB_TOKEN": os.environ["GITHUB_TOKEN"],
-                    "PATH": os.environ["PATH"]
-                }
-            )
-
-            # Upload – but don't crash if asset already exists (422)
-            result = subprocess.run(
-                [
-                    "gh", "release", "upload", release_tag, file_path, "--clobber"
-                ],
-                check=False,
-                env={
-                    "GITHUB_TOKEN": os.environ["GITHUB_TOKEN"],
-                    "PATH": os.environ["PATH"]
-                }
-            )
-
-            # If upload failed, check if the asset exists now – if so, it's fine
-            if result.returncode != 0:
-                print(f"⚠️ Upload command exited with {result.returncode}")
-                current_assets = get_release_assets(release_tag)
-                current_files = {os.path.basename(asset["name"]) for asset in current_assets}
-                if file in current_files:
-                    print(f"✅ {file} is already in the release – treating as success")
-                else:
-                    print(f"❌ Upload failed and {file} is not in the release – aborting")
-                    sys.exit(1)
-
-def get_release_assets(release_tag):
-    """Return a list of assets for a given release tag."""
-    api_url = f"https://api.github.com/repos/developingsystems/WorldHUD/releases/tags/{release_tag}"
-    resp = requests.get(api_url, headers={"Authorization": f"token {os.environ['GITHUB_TOKEN']}"})
-    if resp.status_code == 200:
-        return resp.json().get("assets", [])
-    return []
+    print(f"\n✅ Done. Uploaded: {uploaded_count}, Skipped (existing): {skipped_existing}, Skipped (invalid): {skipped_invalid}")
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
