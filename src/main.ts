@@ -6,6 +6,15 @@ import { InfoBox } from './ui/infobox.js';
 import { fetchChunk } from './data/fetch.js';
 import { FetchQueue } from './data/queue.js';
 
+// ---------- Utility: normalise URL for matching ----------
+function normalizeUrl(url: string): string {
+  let n = url.replace(/\/+$/, '');
+  if (n.startsWith('http://')) {
+    n = 'https://' + n.slice(7);
+  }
+  return n;
+}
+
 // ---------- Utility: chunk timestamp from a JulianDate ----------
 function chunkTimestamp(clockTime: JulianDate): string {
   const d = JulianDate.toDate(clockTime);
@@ -33,13 +42,12 @@ async function fetchAndCacheChunk(
   for (const f of geojson.features) {
     const props = f.properties;
     if (props?.sourceUrl) {
-      const url = props.sourceUrl as string;
+      const url = normalizeUrl(props.sourceUrl as string);
       if (!articleMap.has(url)) articleMap.set(url, []);
       articleMap.get(url)!.push(props);
     }
   }
 
-  // No initial JSON fetch – the polling loop will get all later.
   const articleSources = new Map<string, { gdeltnews?: string; trafilatura?: string }>();
 
   return { geojson, articleMap, articleSources };
@@ -71,11 +79,9 @@ async function main() {
     articleSources: Map<string, { gdeltnews?: string; trafilatura?: string }>;
   }>();
 
-  // ---------- PENDING FETCH TRACKING (FIX INFINITE LOOP) ----------
+  // ---------- PENDING FETCH TRACKING ----------
   const pendingChunks = new Set<string>();
 
-  // InfoBox must be created BEFORE the initial chunk load so that updateDisplay
-  // can start polling for article JSON immediately.
   const infoBox = new InfoBox(viewer, new Map(), new Map());
 
   let latestPublishedTs = '';
@@ -87,7 +93,6 @@ async function main() {
     trafilatura: new Set<string>(),
   };
 
-  // ---------- Dispatch secrets ----------
   const DISPATCH_URL = import.meta.env.VITE_DISPATCH_URL || '';
   const DISPATCH_SECRET = import.meta.env.VITE_DISPATCH_SECRET || '';
 
@@ -148,7 +153,6 @@ async function main() {
     }
   }
 
-  // ---------- Fetch queue ----------
   const fetchQueue = new FetchQueue((ts) => {
     const cached = chunkCache.get(ts);
     if (!cached) return;
@@ -207,7 +211,6 @@ async function main() {
           fetch(urls.gdeltnews).then(r => r.ok ? r.json() : null),
           fetch(urls.trafilatura).then(r => r.ok ? r.json() : null),
         ]).then(([gdeltnewsData, trafilaturaData]) => {
-          // --- DEBUG: log the keys received ---
           if (gdeltnewsData) {
             console.log(`[poll] gdeltnews keys: ${Object.keys(gdeltnewsData).slice(0, 5).join(', ')}${Object.keys(gdeltnewsData).length > 5 ? ' ...' : ''}`);
           }
@@ -218,17 +221,20 @@ async function main() {
           let updated = false;
           let currentUrlUpdated = false;
           const currentUrl = infoBox.getCurrentUrl();
+          const normalizedCurrent = currentUrl ? normalizeUrl(currentUrl) : null;
 
           for (const u of cached.articleMap.keys()) {
-            if (gdeltnewsData?.[u]) {
-              cached.articleSources.set(u, { ...cached.articleSources.get(u), gdeltnews: gdeltnewsData[u] });
+            // u is already normalized (from fetchAndCacheChunk), but we also normalize JSON keys
+            const key = normalizeUrl(u);
+            if (gdeltnewsData?.[key]) {
+              cached.articleSources.set(u, { ...cached.articleSources.get(u), gdeltnews: gdeltnewsData[key] });
               updated = true;
-              if (currentUrl && u === currentUrl) currentUrlUpdated = true;
+              if (normalizedCurrent && key === normalizedCurrent) currentUrlUpdated = true;
             }
-            if (trafilaturaData?.[u]) {
-              cached.articleSources.set(u, { ...cached.articleSources.get(u), trafilatura: trafilaturaData[u] });
+            if (trafilaturaData?.[key]) {
+              cached.articleSources.set(u, { ...cached.articleSources.get(u), trafilatura: trafilaturaData[key] });
               updated = true;
-              if (currentUrl && u === currentUrl) currentUrlUpdated = true;
+              if (normalizedCurrent && key === normalizedCurrent) currentUrlUpdated = true;
             }
           }
 
@@ -236,7 +242,6 @@ async function main() {
             infoBox.updateData(cached.articleMap, cached.articleSources);
           }
 
-          // Clear interval ONLY if the current article is now available, or if no article is selected.
           if (currentUrlUpdated || !currentUrl) {
             const intervalId = (cached as any)._articlePollInterval;
             if (intervalId) clearInterval(intervalId);
@@ -245,7 +250,6 @@ async function main() {
         }).catch(() => {});
       };
 
-      // Immediately try, then poll every 10 seconds
       tryFetch();
       (cached as any)._articlePollInterval = setInterval(tryFetch, 10000);
     }
@@ -285,7 +289,7 @@ async function main() {
         if (idx >= timestamps.length) return;
         const t = timestamps[idx++];
         if (pendingChunks.has(t)) {
-          next(); // skip if already pending
+          next();
           return;
         }
         pendingChunks.add(t);
@@ -335,7 +339,6 @@ async function main() {
     }
 
     if (chunkCache.has(ts)) {
-      // If it was in pending, remove it (it's now cached)
       pendingChunks.delete(ts);
       updateDisplay(ts, chunkCache.get(ts)!);
       lastDisplayedTs = ts;
@@ -343,7 +346,6 @@ async function main() {
       return;
     }
 
-    // Prevent duplicate fetches for the same timestamp
     if (pendingChunks.has(ts)) return;
     pendingChunks.add(ts);
 
