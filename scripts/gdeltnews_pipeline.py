@@ -9,8 +9,8 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 from gdeltnews import download, reconstruct
 
-# Set this to 0 to disable filtering, or adjust after reviewing stats
-MIN_ARTICLE_LENGTH = 0  # e.g., 100 to filter out short snippets
+# Set to 0 to disable filtering; adjust after reviewing stats
+MIN_ARTICLE_LENGTH = 0
 
 def article_json_exists(timestamp: str) -> bool:
     """Return True if gdeltnews_{timestamp}.json already exists in the release."""
