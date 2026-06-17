@@ -15,6 +15,16 @@ function normalizeUrl(url: string): string {
   return n;
 }
 
+// ---------- Normalise all keys of an object ----------
+function normalizeKeys<T>(obj: Record<string, T> | null | undefined): Record<string, T> | null {
+  if (!obj) return null;
+  const result: Record<string, T> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    result[normalizeUrl(key)] = val;
+  }
+  return result;
+}
+
 // ---------- Utility: chunk timestamp from a JulianDate ----------
 function chunkTimestamp(clockTime: JulianDate): string {
   const d = JulianDate.toDate(clockTime);
@@ -191,8 +201,11 @@ async function main() {
     infoBox.updateData(cached.articleMap, cached.articleSources);
 
     // ---------- Polling retry for both article JSON files ----------
-    const existingInterval = (cached as any)._articlePollInterval;
-    if (existingInterval) clearInterval(existingInterval);
+    // Only start polling if we haven't already started for this chunk
+    if ((cached as any)._articlePollInterval) {
+      // Polling already running – do nothing
+      return;
+    }
 
     const hasAnyArticle = [...cached.articleSources.values()].some(
       (s) => s.gdeltnews || s.trafilatura,
@@ -206,35 +219,63 @@ async function main() {
         trafilatura: proxy + encodeURIComponent(`${base}/trafilatura_${ts}.json`),
       };
 
+      // --- Retry counter (max 30 attempts = 5 minutes) ---
+      if (!(cached as any)._pollAttempts) {
+        (cached as any)._pollAttempts = 0;
+      }
+
       const tryFetch = () => {
+        // Increment attempts
+        (cached as any)._pollAttempts = ((cached as any)._pollAttempts || 0) + 1;
+        if ((cached as any)._pollAttempts > 30) {
+          console.log(`[poll] Stopping polling for ${ts} after 30 attempts.`);
+          const intervalId = (cached as any)._articlePollInterval;
+          if (intervalId) clearInterval(intervalId);
+          (cached as any)._articlePollInterval = null;
+          return;
+        }
+
         Promise.all([
           fetch(urls.gdeltnews).then(r => r.ok ? r.json() : null),
           fetch(urls.trafilatura).then(r => r.ok ? r.json() : null),
-        ]).then(([gdeltnewsData, trafilaturaData]) => {
+        ]).then(([gdeltnewsRaw, trafilaturaRaw]) => {
+          // Normalise the keys of the fetched data
+          const gdeltnewsData = normalizeKeys(gdeltnewsRaw);
+          const trafilaturaData = normalizeKeys(trafilaturaRaw);
+
           if (gdeltnewsData) {
-            console.log(`[poll] gdeltnews keys: ${Object.keys(gdeltnewsData).slice(0, 5).join(', ')}${Object.keys(gdeltnewsData).length > 5 ? ' ...' : ''}`);
+            const keys = Object.keys(gdeltnewsData).slice(0, 5);
+            console.log(`[poll] gdeltnews normalised keys: ${keys.join(', ')}${Object.keys(gdeltnewsData).length > 5 ? ' ...' : ''}`);
           }
           if (trafilaturaData) {
-            console.log(`[poll] trafilatura keys: ${Object.keys(trafilaturaData).slice(0, 5).join(', ')}${Object.keys(trafilaturaData).length > 5 ? ' ...' : ''}`);
+            const keys = Object.keys(trafilaturaData).slice(0, 5);
+            console.log(`[poll] trafilatura normalised keys: ${keys.join(', ')}${Object.keys(trafilaturaData).length > 5 ? ' ...' : ''}`);
           }
 
           let updated = false;
           let currentUrlUpdated = false;
           const currentUrl = infoBox.getCurrentUrl();
           const normalizedCurrent = currentUrl ? normalizeUrl(currentUrl) : null;
+          console.log(`[poll] Current URL (normalised): ${normalizedCurrent}`);
 
           for (const u of cached.articleMap.keys()) {
-            // u is already normalized (from fetchAndCacheChunk), but we also normalize JSON keys
-            const key = normalizeUrl(u);
+            // u is already normalised (from fetchAndCacheChunk)
+            const key = u;
             if (gdeltnewsData?.[key]) {
               cached.articleSources.set(u, { ...cached.articleSources.get(u), gdeltnews: gdeltnewsData[key] });
               updated = true;
-              if (normalizedCurrent && key === normalizedCurrent) currentUrlUpdated = true;
+              if (normalizedCurrent && key === normalizedCurrent) {
+                currentUrlUpdated = true;
+                console.log(`[poll] ✅ Found gdeltnews article for current URL!`);
+              }
             }
             if (trafilaturaData?.[key]) {
               cached.articleSources.set(u, { ...cached.articleSources.get(u), trafilatura: trafilaturaData[key] });
               updated = true;
-              if (normalizedCurrent && key === normalizedCurrent) currentUrlUpdated = true;
+              if (normalizedCurrent && key === normalizedCurrent) {
+                currentUrlUpdated = true;
+                console.log(`[poll] ✅ Found trafilatura article for current URL!`);
+              }
             }
           }
 
@@ -242,7 +283,9 @@ async function main() {
             infoBox.updateData(cached.articleMap, cached.articleSources);
           }
 
+          // Clear interval if article found or no article selected
           if (currentUrlUpdated || !currentUrl) {
+            console.log(`[poll] Stopping polling for ${ts} because article found or no URL selected.`);
             const intervalId = (cached as any)._articlePollInterval;
             if (intervalId) clearInterval(intervalId);
             (cached as any)._articlePollInterval = null;
